@@ -106,8 +106,9 @@ class CliReviewAdapter(ABC):
     def review(self, task: ReviewTask) -> ReviewOutcome:
         attempts: list[AttemptRecord] = []
         prompt = build_review_prompt(task)
+        max_attempts = 1 + max(0, min(1, self.settings.max_retries))
 
-        for attempt_no in (1, 2):
+        for attempt_no in range(1, max_attempts + 1):
             with isolated_workdir() as workdir:
                 argv = self._review_argv(workdir)
                 try:
@@ -141,7 +142,7 @@ class CliReviewAdapter(ABC):
                     parse_error or "invalid provider output",
                 )
             )
-            if attempt_no == 1:
+            if attempt_no < max_attempts:
                 previous = (proc.stdout or "")[:_REPAIR_QUOTE_MAX_CHARS]
                 prompt = build_repair_prompt(
                     task, previous, parse_error or "output was not valid JSON"
@@ -150,7 +151,8 @@ class CliReviewAdapter(ABC):
         return ReviewOutcome(
             provider=self.name,
             error_category=ErrorCategory.VALIDATION,
-            error_message="provider output failed validation after one repair retry",
+            error_message="provider output failed validation"
+            + (" after one repair retry" if max_attempts > 1 else " (repair retry disabled)"),
             attempts=attempts,
         )
 

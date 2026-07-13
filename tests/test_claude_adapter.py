@@ -303,3 +303,12 @@ def test_short_paragraph_gets_indeterminate(scenario: SetScenario) -> None:
     assert outcome.ok
     assert outcome.result is not None
     assert outcome.result.style_signal is StyleSignal.INDETERMINATE
+
+
+def test_max_retries_zero_disables_repair(scenario: SetScenario, mock_env: dict[str, Path]) -> None:
+    scenario("malformed_then_success")  # would succeed on the 2nd attempt
+    adapter = ClaudeAdapter(claude_settings(max_retries=0))
+    outcome = adapter.review(make_task())
+    assert not outcome.ok
+    assert len(outcome.attempts) == 1, "no repair attempt when --max-retries 0"
+    assert len(read_log(mock_env)) == 1

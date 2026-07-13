@@ -70,6 +70,7 @@ def make_provider(name: str, config: ReviewConfig) -> ReviewProvider:
                 model=config.claude_model,
                 effort=config.claude_effort,
                 timeout_seconds=config.timeout_seconds,
+                max_retries=config.max_retries,
                 allow_api_billed=config.allow_api_billed,
                 debug=config.debug,
             )
@@ -84,6 +85,7 @@ def make_provider(name: str, config: ReviewConfig) -> ReviewProvider:
                 command_prefix=list(config.codex_command),
                 model=config.codex_model,
                 timeout_seconds=config.timeout_seconds,
+                max_retries=config.max_retries,
                 allow_api_billed=config.allow_api_billed,
                 debug=config.debug,
             )
@@ -147,6 +149,7 @@ def prepare_job(
     if state_exists:
         journal = Journal.open(paths.journal)
         _verify_resume_safe(journal, src_hash, extraction.extraction_fingerprint, config)
+        _verify_elements_match(journal, extraction.elements)
         report = ReportWriter(paths.report)
         if resume_mode is ResumeMode.FORCE_NEW_REPORT or not paths.report.is_file():
             paths.report.unlink(missing_ok=True)
@@ -200,6 +203,20 @@ def _verify_resume_safe(
             ErrorCategory.CONFIGURATION,
             "refusing to resume: " + "; ".join(problems) + ". Use --restart to start "
             "over (existing results will be discarded) or a different --output.",
+        )
+
+
+def _verify_elements_match(journal: Journal, elements: list[DocElement]) -> None:
+    """Belt-and-braces beyond the fingerprints: IDs and content hashes must match
+    exactly, so a changed paragraph can never silently reuse an old result."""
+    stored = journal.elements()
+    stored_sig = [(e.element_id, e.content_sha256) for e in stored]
+    fresh_sig = [(e.element_id, e.content_sha256) for e in elements]
+    if stored_sig != fresh_sig:
+        raise IsaiError(
+            ErrorCategory.CONFIGURATION,
+            "refusing to resume: extracted paragraphs do not match the journal "
+            "(IDs or content hashes differ). Use --restart to start over.",
         )
 
 

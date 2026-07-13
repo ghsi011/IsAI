@@ -109,9 +109,9 @@ def create_app(  # noqa: PLR0915 - route registration is linear, not complex
     @app.post("/api/jobs")
     async def upload(request: Request, file: UploadFile) -> JSONResponse:
         content = await file.read()
-        job = jobs.create_from_upload(file.filename or "document.docx", content)
         form = dict(await request.form())
-        config = _config_from_form(form)
+        config = _config_from_form(form)  # reject bad settings before storing anything
+        job = jobs.create_from_upload(file.filename or "document.docx", content)
         (job.directory / "config.json").write_text(config.model_dump_json(), encoding="utf-8")
         jobs.start(job.job_id, config)
         return JSONResponse({"job_id": job.job_id}, status_code=201)
@@ -239,6 +239,11 @@ def create_app(  # noqa: PLR0915 - route registration is linear, not complex
                 "the journal contains full document text; pass confirm=yes to download",
             )
         job = jobs.get(job_id)
+        if job.running:
+            raise IsaiError(
+                ErrorCategory.CONFIGURATION,
+                "pause or stop the job before downloading the journal (the file is being written)",
+            )
         if not job.journal_path.is_file():
             raise IsaiError(ErrorCategory.FILESYSTEM, "no journal yet")
         return FileResponse(

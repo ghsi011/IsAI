@@ -38,6 +38,7 @@ class ProviderSettings(BaseModel):
     model: str | None = None
     effort: str | None = None
     timeout_seconds: int = 300
+    max_retries: int = 1  # schema-repair retries (0 or 1)
     allow_api_billed: bool = False
     debug: bool = False
 
