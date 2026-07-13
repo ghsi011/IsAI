@@ -12,6 +12,7 @@ import pytest
 
 from isai.providers.runner import (
     BILLING_ENV_VARS,
+    ROUTING_ENV_VARS,
     detect_billing_env_vars,
     isolated_workdir,
     run_process,
@@ -43,18 +44,24 @@ def test_child_runs_in_isolated_cwd(tmp_path: Path) -> None:
 
 
 def test_detect_billing_env_vars_names_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in BILLING_ENV_VARS:
+    for name in (*BILLING_ENV_VARS, *ROUTING_ENV_VARS):
         monkeypatch.delenv(name, raising=False)
     assert detect_billing_env_vars() == []
     monkeypatch.setenv("CODEX_API_KEY", "sk-x")
     assert detect_billing_env_vars() == ["CODEX_API_KEY"]
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+    assert set(detect_billing_env_vars()) == {"CODEX_API_KEY", "ANTHROPIC_BASE_URL"}
 
 
 def test_scrubbed_env_preserves_everything_else(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
     monkeypatch.setenv("ISAI_HARMLESS_TEST_VAR", "keep-me")
     env = scrubbed_child_env()
     assert "ANTHROPIC_API_KEY" not in env
+    assert "ANTHROPIC_BASE_URL" not in env, "rerouting vars must not reach providers"
+    assert "CLAUDE_CODE_USE_BEDROCK" not in env
     assert env["ISAI_HARMLESS_TEST_VAR"] == "keep-me"
 
 

@@ -33,6 +33,25 @@ BILLING_ENV_VARS = (
     "CODEX_API_KEY",
 )
 
+#: Env vars that reroute provider CLIs to alternative endpoints/backends
+#: (gateways, Bedrock, Vertex). Scrubbed from children alongside the billing
+#: vars so a review request can only go where the official CLI sends it by
+#: default, on subscription auth.
+ROUTING_ENV_VARS = (
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_BEDROCK_BASE_URL",
+    "ANTHROPIC_VERTEX_BASE_URL",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+    "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_BASE",
+)
+
+_SCRUBBED_ENV_VARS = frozenset(BILLING_ENV_VARS) | frozenset(ROUTING_ENV_VARS)
+
 _GRACEFUL_WAIT_SECONDS = 3.0
 
 #: Active provider subprocess per thread, so a controller (the GUI's "stop
@@ -61,14 +80,15 @@ class ProcessResult:
 
 
 def detect_billing_env_vars(env: dict[str, str] | None = None) -> list[str]:
-    """Names of billing-capable env vars present in ``env`` (default: this process)."""
+    """Names of billing-capable/rerouting env vars present (values never read)."""
     source = os.environ if env is None else env
-    return [name for name in BILLING_ENV_VARS if name in source]
+    return [name for name in (*BILLING_ENV_VARS, *ROUTING_ENV_VARS) if name in source]
 
 
 def scrubbed_child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
-    """A copy of the current environment with billing-capable vars removed."""
-    env = {k: v for k, v in os.environ.items() if k not in BILLING_ENV_VARS}
+    """A copy of the current environment with billing-capable and provider-
+    rerouting vars removed."""
+    env = {k: v for k, v in os.environ.items() if k not in _SCRUBBED_ENV_VARS}
     if extra:
         env.update(extra)
     return env

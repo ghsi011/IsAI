@@ -84,10 +84,16 @@ def _check_docx_structure(zf: zipfile.ZipFile, names: set[str], limits: DocxSafe
             f"{doc_info.file_size // (1024 * 1024)} MB, above the safety cap"
         )
     # Word never writes DTDs; their presence signals entity-expansion attacks.
+    # Scan the whole member (size-capped above), chunked with overlap so a
+    # marker straddling a chunk boundary is still caught.
+    marker_len = len(b"<!DOCTYPE")
+    tail = b""
     with zf.open("word/document.xml") as doc_stream:
-        head = doc_stream.read(8192)
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in head:
-        raise _reject("document XML contains a DTD; refusing to parse")
+        while chunk := doc_stream.read(1024 * 1024):
+            window = tail + chunk
+            if b"<!DOCTYPE" in window or b"<!ENTITY" in window:
+                raise _reject("document XML contains a DTD; refusing to parse")
+            tail = window[-(marker_len - 1) :]
 
 
 def validate_docx_container(path: Path, limits: DocxSafetyLimits | None = None) -> None:

@@ -55,8 +55,12 @@ class SecurityMiddleware:
         self._hosts = _allowed_hosts(port)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] == "lifespan":
             await self.app(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            # No websocket (or other) endpoints exist; never let a future one
+            # slip past authentication silently.
             return
 
         headers = dict(scope.get("headers") or [])
