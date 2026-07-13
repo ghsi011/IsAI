@@ -334,17 +334,13 @@ class Journal:
 
     def next_pending_any(self, roles: list[TaskRole]) -> tuple[str, TaskRole] | None:
         """First (element, role) needing work, in document order, primary first."""
-        placeholders = ",".join("?" for _ in roles)
-        # S610-style guard: `placeholders` is only a run of "?" marks; all values bind.
-        query = (
+        role_clause = "task.role = ?" if len(roles) == 1 else "task.role IN (?, ?)"
+        row = self._conn.execute(
             "SELECT task.element_id, task.role"
             " FROM task JOIN element USING (element_id)"
-            f" WHERE task.role IN ({placeholders}) AND task.status IN (?, ?)"
+            f" WHERE {role_clause} AND task.status IN (?, ?)"  # noqa: S608 - static clause
             " ORDER BY element.ord,"
-            "  CASE task.role WHEN 'primary' THEN 0 ELSE 1 END LIMIT 1"
-        )
-        row = self._conn.execute(
-            query,
+            "  CASE task.role WHEN 'primary' THEN 0 ELSE 1 END LIMIT 1",
             [r.value for r in roles] + [TaskStatus.PENDING.value, TaskStatus.ACTIVE.value],
         ).fetchone()
         return (row["element_id"], TaskRole(row["role"])) if row else None
