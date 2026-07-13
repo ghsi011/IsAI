@@ -332,6 +332,26 @@ class Journal:
         ).fetchone()
         return row["element_id"] if row else None
 
+    def next_pending_any(self, roles: list[TaskRole]) -> tuple[str, TaskRole] | None:
+        """First (element, role) needing work, in document order, primary first."""
+        placeholders = ",".join("?" for _ in roles)
+        row = self._conn.execute(
+            "SELECT task.element_id, task.role"
+            " FROM task JOIN element USING (element_id)"
+            f" WHERE task.role IN ({placeholders}) AND task.status IN (?, ?)"
+            " ORDER BY element.ord,"
+            "  CASE task.role WHEN 'primary' THEN 0 ELSE 1 END LIMIT 1",
+            ([r.value for r in roles] + [TaskStatus.PENDING.value, TaskStatus.ACTIVE.value]),
+        ).fetchone()
+        return (row["element_id"], TaskRole(row["role"])) if row else None
+
+    def set_agreement(self, element_id: str, role: TaskRole, agreement: str) -> None:
+        with self.transaction() as cur:
+            cur.execute(
+                "UPDATE task SET agreement = ? WHERE element_id = ? AND role = ?",
+                (agreement, element_id, role.value),
+            )
+
     def mark_active(self, element_id: str, role: TaskRole, provider: str) -> None:
         with self.transaction() as cur:
             cur.execute(

@@ -312,6 +312,35 @@ def build_review_task(journal: Journal, element: DocElement, config: ReviewConfi
     )
 
 
+def _audit_sampled(element_id: str, audit_percent: int) -> bool:
+    """Deterministic audit sampling: stable per element, no randomness."""
+    if audit_percent <= 0:
+        return False
+    bucket = int(hashlib.sha256(element_id.encode("ascii")).hexdigest()[:8], 16) % 100
+    return bucket < audit_percent
+
+
+_SIGNAL_ORDER = {
+    StyleSignal.NONE: 0,
+    StyleSignal.MILD: 1,
+    StyleSignal.MODERATE: 2,
+    StyleSignal.STRONG: 3,
+}
+
+
+def classify_agreement(primary: StyleSignal, second: StyleSignal) -> str:
+    """agreement | partial_agreement | disagreement — never averaged."""
+    if primary is second:
+        return "agreement"
+    if StyleSignal.INDETERMINATE in (primary, second):
+        return "partial_agreement"
+    return (
+        "partial_agreement"
+        if abs(_SIGNAL_ORDER[primary] - _SIGNAL_ORDER[second]) == 1
+        else "disagreement"
+    )
+
+
 class JobRunner:
     """Sequential executor for one prepared job (one provider subprocess at a time)."""
 
@@ -329,23 +358,33 @@ class JobRunner:
         self._on_event = on_event or (lambda _kind, _payload: None)
         self._should_stop = should_stop or (lambda: False)
         self._reviewed_count = 0
+        self._consensus = config.provider_mode is ProviderMode.CONSENSUS
+        self._primary: ReviewProvider | None = None
+        self._second: ReviewProvider | None = None
 
     def emit(self, kind: str, **payload: object) -> None:
         self._on_event(kind, payload)
 
     def run(self) -> JobStatus:
-        provider = self._preflighted_provider()
-        if provider is None:
-            return self.journal.meta().status
+        self._setup_providers()
+        assert self._primary is not None
 
         self.journal.set_status(JobStatus.IN_PROGRESS)
         self.emit("job_started", job_id=self.journal.meta().job_id)
 
-        while (element_id := self.journal.next_pending(TaskRole.PRIMARY)) is not None:
+        roles = (
+            [TaskRole.PRIMARY, TaskRole.SECOND_OPINION] if self._consensus else [TaskRole.PRIMARY]
+        )
+        while (item := self.journal.next_pending_any(roles)) is not None:
+            element_id, role = item
             if self._should_stop():
                 return self._pause(ErrorCategory.INTERRUPTED, "stopped by user")
             element = self.journal.element(element_id)
-            status = self._process_element(provider, element)
+            status = (
+                self._process_primary(element)
+                if role is TaskRole.PRIMARY
+                else self._process_second_opinion(element)
+            )
             if status is not None:
                 return status
 
@@ -354,10 +393,33 @@ class JobRunner:
         self.emit("job_completed", job_id=self.journal.meta().job_id)
         return JobStatus.COMPLETED
 
-    # -- internals -------------------------------------------------------------
+    # -- provider resolution ------------------------------------------------------
 
-    def _preflighted_provider(self) -> ReviewProvider | None:
-        name = self._primary_name()
+    def _setup_providers(self) -> None:
+        mode = self.config.provider_mode
+        if mode in (ProviderMode.CLAUDE, ProviderMode.CODEX):
+            self._primary = self._require_usable(mode.value)
+            return
+        if mode is ProviderMode.AUTO:
+            self._primary = self._resolve_auto()
+            return
+        # consensus
+        primary_name = self.config.primary_provider or "claude"
+        second_name = self.config.second_opinion_provider or (
+            "codex" if primary_name == "claude" else "claude"
+        )
+        self._primary = self._require_usable(primary_name)
+        self._second = self._optional_provider(second_name)
+        if self._second is None and self.config.fallback_provider:
+            self._second = self._optional_provider(self.config.fallback_provider)
+        if self._second is None:
+            self.emit(
+                "consensus_degraded",
+                message=f"second-opinion provider '{second_name}' unavailable; "
+                "consensus results will be reported as single-provider",
+            )
+
+    def _require_usable(self, name: str) -> ReviewProvider:
         provider = make_provider(name, self.config)
         status = provider.preflight()
         blocking = status.blocking_category()
@@ -367,31 +429,60 @@ class JobRunner:
             raise IsaiError(blocking, status.message)
         return provider
 
-    def _primary_name(self) -> str:
-        mode = self.config.provider_mode
-        if mode in (ProviderMode.CLAUDE, ProviderMode.CODEX):
-            return mode.value
-        if mode is ProviderMode.CONSENSUS:
-            return self.config.primary_provider or "claude"
-        # AUTO is resolved by the caller (M2); default to claude here.
-        return self.config.primary_provider or "claude"
+    def _optional_provider(self, name: str) -> ReviewProvider | None:
+        try:
+            provider = make_provider(name, self.config)
+            return provider if provider.preflight().usable else None
+        except (IsaiError, FileNotFoundError):
+            return None
 
-    def _process_element(self, provider: ReviewProvider, element: DocElement) -> JobStatus | None:
+    def _resolve_auto(self) -> ReviewProvider:
+        messages: list[str] = []
+        order = ("claude", "codex")
+        if self.config.primary_provider:
+            order = (
+                self.config.primary_provider,
+                *[n for n in ("claude", "codex") if n != self.config.primary_provider],
+            )
+        for name in order:
+            provider = make_provider(name, self.config)
+            status = provider.preflight()
+            if status.usable:
+                return provider
+            messages.append(f"{name}: {status.message}")
+        summary = (
+            "no usable provider for --provider auto — " + " | ".join(messages) + ". "
+            "Install and sign in to Claude Code (claude.ai subscription) or "
+            "Codex CLI (ChatGPT), then re-run `isai doctor`."
+        )
+        self.journal.set_status(JobStatus.PAUSED, ErrorCategory.CONFIGURATION.value)
+        self.emit("job_paused", reason=ErrorCategory.CONFIGURATION.value, message=summary)
+        raise IsaiError(ErrorCategory.CONFIGURATION, summary)
+
+    # -- primary review -------------------------------------------------------------
+
+    def _skip(self, element: DocElement) -> None:
+        self.journal.mark_skipped(element.element_id, TaskRole.PRIMARY)
+        if self._consensus:
+            self.journal.mark_skipped(element.element_id, TaskRole.SECOND_OPINION)
+
+    def _process_primary(self, element: DocElement) -> JobStatus | None:
         """Run the 9-step protocol for one element. Non-None return ends the run."""
+        assert self._primary is not None
         role = TaskRole.PRIMARY
 
         if not _reviewable(element) or not _in_range(element, self.config):
-            self.journal.mark_skipped(element.element_id, role)
+            self._skip(element)
             return None
         if (
             self.config.max_paragraphs is not None
             and self._reviewed_count >= self.config.max_paragraphs
         ):
-            self.journal.mark_skipped(element.element_id, role)
+            self._skip(element)
             return None
 
         # (1) active + event
-        self.journal.mark_active(element.element_id, role, provider.name.value)
+        self.journal.mark_active(element.element_id, role, self._primary.name.value)
         self.emit(
             "paragraph_started",
             element_id=element.element_id,
@@ -405,7 +496,7 @@ class JobRunner:
             self._commit_success(element, role, LOCAL_PROVIDER, result, [])
             return None
 
-        outcome = provider.review(task)
+        outcome = self._primary.review(task)
 
         if outcome.ok and outcome.result is not None:
             # (4) local highlight resolution
@@ -413,7 +504,7 @@ class JobRunner:
             self._commit_success(
                 element,
                 role,
-                provider.name.value,
+                self._primary.name.value,
                 outcome.result,
                 highlights,
                 attempts=outcome.attempts,
@@ -422,23 +513,20 @@ class JobRunner:
 
         category = outcome.error_category or ErrorCategory.UNKNOWN
         if category in JOB_PAUSING_CATEGORIES:
-            # Preserve the paragraph for retry after resume.
-            with self.journal.transaction() as cur:
-                cur.execute(
-                    "UPDATE task SET status = ? WHERE element_id = ? AND role = ?",
-                    (TaskStatus.PENDING.value, element.element_id, role.value),
-                )
+            self._reset_to_pending(element.element_id, role)
             return self._pause(category, outcome.error_message)
 
         # Recorded per-paragraph error; the run continues.
         self.journal.record_error(
             element.element_id,
             role,
-            provider=provider.name.value,
+            provider=self._primary.name.value,
             category=category,
             message=outcome.error_message,
             attempts=outcome.attempts,
         )
+        if self._consensus:
+            self.journal.mark_skipped(element.element_id, TaskRole.SECOND_OPINION)
         self._append_markdown(element, role)
         self.emit(
             "paragraph_error",
@@ -446,6 +534,91 @@ class JobRunner:
             category=category.value,
         )
         return None
+
+    # -- second opinion ----------------------------------------------------------------
+
+    def _needs_second_opinion(self, element: DocElement) -> bool:
+        primary_task = self.journal.task(element.element_id, TaskRole.PRIMARY)
+        if primary_task.status is not TaskStatus.COMPLETED or primary_task.result is None:
+            return False
+        if primary_task.provider == LOCAL_PROVIDER:
+            return False
+        result = primary_task.result
+        return (
+            result.style_signal
+            in (StyleSignal.MODERATE, StyleSignal.STRONG, StyleSignal.INDETERMINATE)
+            or result.needs_second_opinion
+            or any(a.status == "invalid" for a in primary_task.attempts)
+            or _audit_sampled(element.element_id, self.config.audit_percent)
+        )
+
+    def _process_second_opinion(self, element: DocElement) -> JobStatus | None:
+        role = TaskRole.SECOND_OPINION
+        if not self._needs_second_opinion(element):
+            self.journal.mark_skipped(element.element_id, role)
+            return None
+        if self._second is None:
+            self.journal.mark_skipped(element.element_id, role)
+            self.journal.set_agreement(element.element_id, TaskRole.PRIMARY, "single_provider")
+            return None
+
+        self.journal.mark_active(element.element_id, role, self._second.name.value)
+        task = build_review_task(self.journal, element, self.config)
+        outcome = self._second.review(task)
+
+        if outcome.ok and outcome.result is not None:
+            primary_task = self.journal.task(element.element_id, TaskRole.PRIMARY)
+            assert primary_task.result is not None
+            agreement = classify_agreement(
+                primary_task.result.style_signal, outcome.result.style_signal
+            )
+            highlights = resolve_highlights(outcome.result, element.text)
+            self.journal.record_result(
+                element.element_id,
+                role,
+                provider=self._second.name.value,
+                result=outcome.result,
+                highlights=highlights,
+                attempts=outcome.attempts,
+                agreement=agreement,
+            )
+            self.journal.set_agreement(element.element_id, TaskRole.PRIMARY, agreement)
+            self._append_markdown(element, role)
+            self.emit(
+                "second_opinion_completed",
+                element_id=element.element_id,
+                display_number=element.display_number,
+                agreement=agreement,
+                style_signal=outcome.result.style_signal.value,
+            )
+            return None
+
+        category = outcome.error_category or ErrorCategory.UNKNOWN
+        if category in JOB_PAUSING_CATEGORIES:
+            self._reset_to_pending(element.element_id, role)
+            return self._pause(category, outcome.error_message)
+
+        self.journal.record_error(
+            element.element_id,
+            role,
+            provider=self._second.name.value,
+            category=category,
+            message=outcome.error_message,
+            attempts=outcome.attempts,
+        )
+        self.journal.set_agreement(element.element_id, TaskRole.PRIMARY, "single_provider")
+        self._append_markdown(element, role)
+        self.emit("paragraph_error", element_id=element.element_id, category=category.value)
+        return None
+
+    # -- shared helpers -------------------------------------------------------------------
+
+    def _reset_to_pending(self, element_id: str, role: TaskRole) -> None:
+        with self.journal.transaction() as cur:
+            cur.execute(
+                "UPDATE task SET status = ? WHERE element_id = ? AND role = ?",
+                (TaskStatus.PENDING.value, element_id, role.value),
+            )
 
     def _commit_success(
         self,
