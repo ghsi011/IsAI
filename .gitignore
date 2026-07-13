@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+junit*.xml
+
+# User document data — never commit anything that may contain document text
+*.docx
+*.sqlite3
+*-review.md
+uploads/
+jobs/
+debug-transcripts/
+
+# Allow committed synthetic test fixtures only via the generator script
+!tests/fixtures/.gitkeep
+
+# Playwright
+playwright-report/
+test-results/
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/
+
+# Local scratch
+.tmp/
+.omo/
+.agents/
+scratch/
