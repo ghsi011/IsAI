@@ -8,6 +8,7 @@ import pytest
 from scripts.generate_docx_fixtures import build_thesis
 
 from isai.config import ReviewConfig
+from isai.errors import IsaiError
 from isai.models import StyleSignal
 from isai.persistence import Journal, TaskRole, TaskStatus
 from isai.persistence.db import JobStatus
@@ -84,8 +85,6 @@ def test_auto_falls_back_to_codex(tmp_path: Path) -> None:
 def test_auto_with_no_usable_provider_errors_actionably(
     tmp_path: Path, scenario: SetScenario
 ) -> None:
-    from isai.errors import IsaiError
-
     docx = build_thesis(tmp_path / "t.docx", paragraphs=2)
     scenario("auth_missing")  # both mocks report not-logged-in
     config = make_config(provider_mode="auto")
