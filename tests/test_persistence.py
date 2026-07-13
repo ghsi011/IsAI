@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
+from scripts.generate_docx_fixtures import build_simple
 
-from isai.docxio import extract_document
+from isai.docxio import DocElement, extract_document
 from isai.errors import ErrorCategory, IsaiError
 from isai.highlights import resolve_highlights
 from isai.persistence import JobMeta, Journal, ReportWriter, TaskRole, TaskStatus
@@ -18,12 +19,11 @@ from isai.persistence.render import (
     render_summary,
     render_task_section,
 )
-from scripts.generate_docx_fixtures import build_simple
 from tests.helpers import make_result
 
 
 @pytest.fixture()
-def elements(tmp_path: Path):
+def elements(tmp_path: Path) -> list[DocElement]:
     return extract_document(build_simple(tmp_path / "doc.docx")).elements
 
 
@@ -43,16 +43,14 @@ def make_meta(**overrides: object) -> JobMeta:
     return JobMeta.model_validate(defaults)
 
 
-def make_journal(tmp_path: Path, elements) -> Journal:
-    return Journal.create(
-        tmp_path / "job.sqlite3", make_meta(), elements, [TaskRole.PRIMARY]
-    )
+def make_journal(tmp_path: Path, elements: list[DocElement]) -> Journal:
+    return Journal.create(tmp_path / "job.sqlite3", make_meta(), elements, [TaskRole.PRIMARY])
 
 
 # -- journal basics ------------------------------------------------------------
 
 
-def test_create_and_reopen_roundtrip(tmp_path: Path, elements) -> None:
+def test_create_and_reopen_roundtrip(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
     journal.close()
     reopened = Journal.open(tmp_path / "job.sqlite3")
@@ -62,14 +60,14 @@ def test_create_and_reopen_roundtrip(tmp_path: Path, elements) -> None:
     reopened.close()
 
 
-def test_create_refuses_existing(tmp_path: Path, elements) -> None:
+def test_create_refuses_existing(tmp_path: Path, elements: list[DocElement]) -> None:
     make_journal(tmp_path, elements).close()
     with pytest.raises(IsaiError) as exc_info:
         make_journal(tmp_path, elements)
     assert exc_info.value.category is ErrorCategory.DATABASE
 
 
-def test_result_commit_and_progress(tmp_path: Path, elements) -> None:
+def test_result_commit_and_progress(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
     element = elements[0]
     result = make_result()
@@ -92,7 +90,7 @@ def test_result_commit_and_progress(tmp_path: Path, elements) -> None:
     journal.close()
 
 
-def test_error_recorded_and_run_continues(tmp_path: Path, elements) -> None:
+def test_error_recorded_and_run_continues(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
     journal.record_error(
         elements[0].element_id,
@@ -110,7 +108,9 @@ def test_error_recorded_and_run_continues(tmp_path: Path, elements) -> None:
     journal.close()
 
 
-def test_active_task_counts_as_incomplete_for_resume(tmp_path: Path, elements) -> None:
+def test_active_task_counts_as_incomplete_for_resume(
+    tmp_path: Path, elements: list[DocElement]
+) -> None:
     journal = make_journal(tmp_path, elements)
     journal.mark_active(elements[0].element_id, TaskRole.PRIMARY, "claude")
     journal.close()
@@ -120,7 +120,7 @@ def test_active_task_counts_as_incomplete_for_resume(tmp_path: Path, elements) -
     reopened.close()
 
 
-def test_pause_and_status(tmp_path: Path, elements) -> None:
+def test_pause_and_status(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
     journal.set_status(JobStatus.PAUSED, "usage_limit")
     meta = journal.meta()
@@ -129,9 +129,9 @@ def test_pause_and_status(tmp_path: Path, elements) -> None:
     journal.close()
 
 
-def test_wrong_schema_version_rejected(tmp_path: Path, elements) -> None:
+def test_wrong_schema_version_rejected(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
-    journal._conn.execute("PRAGMA user_version = 99")  # noqa: SLF001
+    journal._conn.execute("PRAGMA user_version = 99")  # pyright: ignore[reportPrivateUsage]
     journal.close()
     with pytest.raises(IsaiError):
         Journal.open(tmp_path / "job.sqlite3")
@@ -140,7 +140,7 @@ def test_wrong_schema_version_rejected(tmp_path: Path, elements) -> None:
 # -- report writer ---------------------------------------------------------------
 
 
-def test_header_written_durably_before_results(tmp_path: Path, elements) -> None:
+def test_header_written_durably_before_results(tmp_path: Path, elements: list[DocElement]) -> None:
     report = ReportWriter(tmp_path / "report.md")
     meta = make_meta()
     report.create(render_header(meta, len(elements), 10))
@@ -156,15 +156,19 @@ def test_create_refuses_existing_report(tmp_path: Path) -> None:
         ReportWriter(path).create("# header")
 
 
-def test_append_and_marker_scan(tmp_path: Path, elements) -> None:
+def test_append_and_marker_scan(tmp_path: Path, elements: list[DocElement]) -> None:
     report = ReportWriter(tmp_path / "report.md")
     report.create(render_header(make_meta(), len(elements), 10))
     element = elements[1]
     result = make_result()
     journal = make_journal(tmp_path, elements)
     journal.record_result(
-        element.element_id, TaskRole.PRIMARY, provider="claude", result=result,
-        highlights=[], attempts=[],
+        element.element_id,
+        TaskRole.PRIMARY,
+        provider="claude",
+        result=result,
+        highlights=[],
+        attempts=[],
     )
     section = render_task_section(element, journal.task(element.element_id, TaskRole.PRIMARY))
     report.append_section(section)
@@ -173,7 +177,9 @@ def test_append_and_marker_scan(tmp_path: Path, elements) -> None:
     journal.close()
 
 
-def test_concurrent_reader_sees_valid_report_mid_run(tmp_path: Path, elements) -> None:
+def test_concurrent_reader_sees_valid_report_mid_run(
+    tmp_path: Path, elements: list[DocElement]
+) -> None:
     """A second handle reads complete sections while the writer appends more."""
     report = ReportWriter(tmp_path / "report.md")
     report.create(render_header(make_meta(), len(elements), 10))
@@ -181,8 +187,12 @@ def test_concurrent_reader_sees_valid_report_mid_run(tmp_path: Path, elements) -
     for element in elements[:3]:
         result = make_result()
         journal.record_result(
-            element.element_id, TaskRole.PRIMARY, provider="claude", result=result,
-            highlights=[], attempts=[],
+            element.element_id,
+            TaskRole.PRIMARY,
+            provider="claude",
+            result=result,
+            highlights=[],
+            attempts=[],
         )
         report.append_section(
             render_task_section(element, journal.task(element.element_id, TaskRole.PRIMARY))
@@ -222,17 +232,24 @@ def rebuild_markdown(journal: Journal) -> str:
     return "".join(parts)
 
 
-def test_rebuild_is_deterministic(tmp_path: Path, elements) -> None:
+def test_rebuild_is_deterministic(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
     for element in elements[:4]:
         result = make_result()
         journal.record_result(
-            element.element_id, TaskRole.PRIMARY, provider="claude", result=result,
-            highlights=resolve_highlights(result, element.text), attempts=[],
+            element.element_id,
+            TaskRole.PRIMARY,
+            provider="claude",
+            result=result,
+            highlights=resolve_highlights(result, element.text),
+            attempts=[],
         )
     journal.record_error(
-        elements[4].element_id, TaskRole.PRIMARY, provider="claude",
-        category=ErrorCategory.TIMEOUT, message="provider invocation timed out",
+        elements[4].element_id,
+        TaskRole.PRIMARY,
+        provider="claude",
+        category=ErrorCategory.TIMEOUT,
+        message="provider invocation timed out",
         attempts=[],
     )
     first = rebuild_markdown(journal)
@@ -242,7 +259,7 @@ def test_rebuild_is_deterministic(tmp_path: Path, elements) -> None:
     journal.close()
 
 
-def test_task_row_json_roundtrip(tmp_path: Path, elements) -> None:
+def test_task_row_json_roundtrip(tmp_path: Path, elements: list[DocElement]) -> None:
     journal = make_journal(tmp_path, elements)
     element = elements[0]
     result = make_result(
@@ -256,13 +273,17 @@ def test_task_row_json_roundtrip(tmp_path: Path, elements) -> None:
     )
     highlights = resolve_highlights(result, element.text)
     journal.record_result(
-        element.element_id, TaskRole.PRIMARY, provider="claude", result=result,
-        highlights=highlights, attempts=[],
+        element.element_id,
+        TaskRole.PRIMARY,
+        provider="claude",
+        result=result,
+        highlights=highlights,
+        attempts=[],
     )
     task = journal.task(element.element_id, TaskRole.PRIMARY)
     assert task.result == result
     assert task.highlights == highlights
-    raw = journal._conn.execute(  # noqa: SLF001
+    raw = journal._conn.execute(  # pyright: ignore[reportPrivateUsage]
         "SELECT result_json FROM task WHERE element_id = ?", (element.element_id,)
     ).fetchone()[0]
     assert json.loads(raw)["schema_version"] == "1.0"

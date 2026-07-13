@@ -10,6 +10,7 @@ duplicated or lost.
 from __future__ import annotations
 
 from enum import StrEnum
+from itertools import pairwise
 
 from pydantic import BaseModel, ConfigDict
 
@@ -130,7 +131,7 @@ def split_segments(highlights: list[Highlight], text_length: int) -> list[Segmen
         boundaries.add(min(h.end, text_length))
     ordered = sorted(boundaries)
     segments: list[Segment] = []
-    for start, end in zip(ordered, ordered[1:], strict=False):
+    for start, end in pairwise(ordered):
         if start >= end:
             continue
         covering = [h.highlight_id for h in resolved if h.start <= start and h.end >= end]

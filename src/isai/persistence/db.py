@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -201,8 +201,7 @@ class Journal:
             conn.close()
             raise IsaiError(
                 ErrorCategory.DATABASE,
-                f"journal schema version {version} is not supported "
-                f"(expected {SCHEMA_VERSION})",
+                f"journal schema version {version} is not supported (expected {SCHEMA_VERSION})",
             )
         return cls(conn, path)
 
@@ -219,7 +218,7 @@ class Journal:
         self._conn.close()
 
     @contextmanager
-    def transaction(self) -> Iterator[sqlite3.Cursor]:
+    def transaction(self) -> Generator[sqlite3.Cursor]:
         cur = self._conn.cursor()
         try:
             cur.execute("BEGIN IMMEDIATE")
@@ -284,18 +283,12 @@ class Journal:
             status=TaskStatus(row["status"]),
             provider=row["provider"],
             result=(
-                ReviewResult.model_validate_json(row["result_json"])
-                if row["result_json"]
-                else None
+                ReviewResult.model_validate_json(row["result_json"]) if row["result_json"] else None
             ),
             error_category=row["error_category"],
             error_message=row["error_message"],
-            attempts=[
-                AttemptRecord.model_validate(a) for a in json.loads(row["attempts_json"])
-            ],
-            highlights=[
-                Highlight.model_validate(h) for h in json.loads(row["highlights_json"])
-            ],
+            attempts=[AttemptRecord.model_validate(a) for a in json.loads(row["attempts_json"])],
+            highlights=[Highlight.model_validate(h) for h in json.loads(row["highlights_json"])],
             agreement=row["agreement"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
@@ -308,19 +301,22 @@ class Journal:
             (element_id, role.value),
         ).fetchone()
         if row is None:
-            raise IsaiError(
-                ErrorCategory.DATABASE, f"unknown task {element_id}/{role.value}"
-            )
+            raise IsaiError(ErrorCategory.DATABASE, f"unknown task {element_id}/{role.value}")
         return self._task_from_row(row)
 
     def tasks(self, role: TaskRole | None = None) -> list[TaskRow]:
-        query = (
-            "SELECT task.* FROM task JOIN element USING (element_id)"
-            + (" WHERE task.role = ?" if role else "")
-            + " ORDER BY element.ord, task.role"
-        )
-        params = (role.value,) if role else ()
-        return [self._task_from_row(r) for r in self._conn.execute(query, params)]
+        if role is not None:
+            rows = self._conn.execute(
+                "SELECT task.* FROM task JOIN element USING (element_id)"
+                " WHERE task.role = ? ORDER BY element.ord, task.role",
+                (role.value,),
+            )
+        else:
+            rows = self._conn.execute(
+                "SELECT task.* FROM task JOIN element USING (element_id)"
+                " ORDER BY element.ord, task.role"
+            )
+        return [self._task_from_row(r) for r in rows]
 
     def next_pending(self, role: TaskRole = TaskRole.PRIMARY) -> str | None:
         """Element ID of the first task not yet completed/skipped (resume point).
@@ -408,9 +404,7 @@ class Journal:
                 (TaskStatus.SKIPPED.value, element_id, role.value),
             )
 
-    def set_markdown_written(
-        self, element_id: str, role: TaskRole, written: bool = True
-    ) -> None:
+    def set_markdown_written(self, element_id: str, role: TaskRole, written: bool = True) -> None:
         with self.transaction() as cur:
             cur.execute(
                 "UPDATE task SET markdown_written = ? WHERE element_id = ? AND role = ?",

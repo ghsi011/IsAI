@@ -40,6 +40,41 @@ are appended at the bottom of each section.
   require the exact flags above; a CLI lacking any required isolation/structured-output
   flag fails with a compatibility error naming the missing flag (never silently degrade).
 
+## Core pipeline (M1)
+
+- **D-030 — Occurrence indices are 1-based.** ``occurrence_index=1`` is the first
+  occurrence of a quotation in the target paragraph; ``null`` means first/only. An
+  out-of-range index resolves to ``unresolved``, never clamped to a wrong occurrence.
+- **D-031 — Conservative-Unicode matching is regex-class based.** Instead of index-
+  mapping normalized strings back to original offsets, the fallback tiers compile the
+  quotation into a regex over the *original* text (quote/dash/space equivalence classes,
+  NFC/NFD letter alternation, combining-mark tolerance, ellipsis≈"..."), so matches are
+  natively in original coordinates.
+- **D-032 — Short-paragraph policy.** Headings and empty paragraphs are skipped (no
+  provider call, marked in report/GUI). Short non-heading paragraphs use context-assisted
+  review (scope ``context_window``) when neighbors exist; with context assist off or no
+  neighbors, IsAI synthesizes an ``indeterminate`` result locally (provider ``local``) and
+  never calls the model.
+- **D-033 — Windows tree-kill order.** ``taskkill /T`` must run while the hung root
+  process is still alive (Windows enumerates a tree from a living root), so timeout
+  handling is: graceful ``taskkill /T`` → short wait → forced ``taskkill /T /F`` — never
+  ``terminate()`` first (that orphans grandchildren).
+- **D-034 — SQLite settings.** WAL + ``synchronous=FULL`` + explicit ``BEGIN IMMEDIATE``
+  transactions (``isolation_level=None``); DDL executed statement-wise because
+  ``executescript`` implicitly commits.
+- **D-035 — Provider command override env vars.** ``ISAI_CLAUDE_COMMAND`` /
+  ``ISAI_CODEX_COMMAND`` (JSON arrays) override the provider executables — used by the
+  mock end-to-end tests and available for nonstandard install paths. Part of the config
+  fingerprint, so a resumed job can't silently switch executables.
+- **D-036 — CLI exit codes.** 0 success; 3 document; 4 configuration; 5 authentication;
+  6 billing_mode; 7 paused (usage limit/interrupt with resumable state); 130 Ctrl+C.
+- **D-037 — `--max-turns` does not exist in claude 2.1.183.** Verified against the real
+  help output; single-turn behavior is guaranteed by ``--tools ""`` instead.
+- **D-038 — Repair-retry scope.** Only repairable *output* problems (malformed JSON,
+  schema violation, content-rule violation) trigger the single repair retry. Process
+  failures (timeout, non-zero exit) are classified and recorded without retry; pausing
+  categories (auth/billing/usage) reset the paragraph to pending and pause the job.
+
 ## Prior work
 
 - **D-020 — Previous AI artifacts deleted.** The repo contained `.omo/` research

@@ -79,17 +79,8 @@ def render_header(meta: JobMeta, total_elements: int, reviewable: int) -> str:
     return "\n".join(lines)
 
 
-def _render_result_body(result: ReviewResult) -> list[str]:
+def _render_indicator_lists(result: ReviewResult) -> list[str]:
     lines: list[str] = []
-    lines.append(
-        f"**Style signal:** {result.style_signal.value} · "
-        f"**Confidence in observations:** {result.assessment_confidence.value} · "
-        f"**Review priority:** {result.review_priority.value}"
-    )
-    lines.append("")
-    lines.append(md_escape(result.summary))
-    lines.append("")
-
     if result.indicators:
         lines.append("**Indicators (AI-associated style):**")
         for ind in result.indicators:
@@ -120,6 +111,20 @@ def _render_result_body(result: ReviewResult) -> list[str]:
             quote = f' — "{md_escape(co.target_text)}"' if co.target_text else ""
             lines.append(f"- {md_escape(co.observation)}{quote}{check}")
         lines.append("")
+    return lines
+
+
+def _render_result_body(result: ReviewResult) -> list[str]:
+    lines: list[str] = []
+    lines.append(
+        f"**Style signal:** {result.style_signal.value} · "
+        f"**Confidence in observations:** {result.assessment_confidence.value} · "
+        f"**Review priority:** {result.review_priority.value}"
+    )
+    lines.append("")
+    lines.append(md_escape(result.summary))
+    lines.append("")
+    lines.extend(_render_indicator_lists(result))
     if result.revision_suggestions:
         lines.append("**Revision suggestions:**")
         for rs in result.revision_suggestions:
@@ -146,7 +151,9 @@ def _render_result_body(result: ReviewResult) -> list[str]:
 
 def render_task_section(element: DocElement, task: TaskRow) -> str:
     """One paragraph's report section (primary or second opinion)."""
-    heading_note = f" — under “{md_escape(element.nearest_heading)}”" if element.nearest_heading else ""
+    heading_note = (
+        f" — under “{md_escape(element.nearest_heading)}”" if element.nearest_heading else ""
+    )
     role_label = "Second opinion" if task.role.value == "second_opinion" else "Paragraph"
     title = f"## {role_label} {element.display_number}{heading_note}"
 
@@ -189,9 +196,7 @@ def render_summary(meta: JobMeta, tasks: list[TaskRow]) -> str:
     for t in primary:
         if t.result is not None:
             signals[t.result.style_signal.value] = signals.get(t.result.style_signal.value, 0) + 1
-    signal_line = (
-        ", ".join(f"{k}: {v}" for k, v in sorted(signals.items())) if signals else "none"
-    )
+    signal_line = ", ".join(f"{k}: {v}" for k, v in sorted(signals.items())) if signals else "none"
     lines = [
         "## Run summary",
         "",

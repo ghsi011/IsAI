@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 from isai.highlights import resolve_highlights, split_segments
 from isai.textmatch import MatchTier
 from tests.helpers import make_result
@@ -30,9 +32,7 @@ def test_resolution_uses_local_offsets() -> None:
 
 def test_unresolved_never_guesses() -> None:
     result = make_result(
-        indicators=[
-            {"category": "other", "evidence": "not present anywhere", "explanation": "x"}
-        ]
+        indicators=[{"category": "other", "evidence": "not present anywhere", "explanation": "x"}]
     )
     highlights = resolve_highlights(result, PARA)
     assert highlights[0].tier is MatchTier.UNRESOLVED
@@ -42,9 +42,7 @@ def test_unresolved_never_guesses() -> None:
 def test_all_quoted_fields_produce_highlights() -> None:
     result = make_result(
         indicators=[{"category": "other", "evidence": "significant", "explanation": "x"}],
-        counter_indicators=[
-            {"category": "other", "evidence": "every model", "explanation": "x"}
-        ],
+        counter_indicators=[{"category": "other", "evidence": "every model", "explanation": "x"}],
         quality_issues=[
             {"category": "repetition", "target_text": "The results", "description": "x"}
         ],
@@ -99,7 +97,7 @@ def test_overlap_splitting_preserves_text() -> None:
     # Segments must tile the full text with no gaps or overlaps.
     assert segments[0].start == 0
     assert segments[-1].end == len(PARA)
-    for a, b in zip(segments, segments[1:], strict=False):
+    for a, b in pairwise(segments):
         assert a.end == b.start
     # The overlapping middle region carries both highlight IDs.
     overlap = [s for s in segments if len(s.highlight_ids) == 2]
@@ -130,9 +128,7 @@ def test_nested_highlights_split_at_boundaries() -> None:
 
 def test_unresolved_highlights_do_not_split() -> None:
     result = make_result(
-        indicators=[
-            {"category": "other", "evidence": "absent text", "explanation": "x"}
-        ]
+        indicators=[{"category": "other", "evidence": "absent text", "explanation": "x"}]
     )
     highlights = resolve_highlights(result, PARA)
     segments = split_segments(highlights, len(PARA))
