@@ -75,6 +75,44 @@ are appended at the bottom of each section.
   failures (timeout, non-zero exit) are classified and recorded without retry; pausing
   categories (auth/billing/usage) reset the paragraph to pending and pause the job.
 
+## Web GUI (M2)
+
+- **D-050 — Pure ASGI security middleware.** Starlette's ``BaseHTTPMiddleware``
+  buffers response bodies, which silently stalls Server-Sent Events; the
+  token/Host/headers middleware is therefore written against the raw ASGI
+  interface.
+- **D-051 — SSE design.** Events carry IDs and statuses only; the browser
+  re-fetches authoritative state after each event and on every (re)connect — no
+  ``Last-Event-ID`` replay. Streams close at terminal job states and accept an
+  optional ``max_seconds`` bound because Starlette's TestClient cannot consume
+  infinite streams.
+- **D-052 — Access token transport.** The token is embedded in the launched URL
+  (query param) and accepted via the ``X-IsAI-Token`` header for API calls;
+  no cookies, so nothing is attached cross-origin automatically.
+- **D-053 — GUI stop semantics.** "Pause after current" sets a flag checked
+  between paragraphs; "Stop provider process" additionally tree-kills the job
+  thread's in-flight provider subprocess (tracked in a per-thread registry) and
+  the resulting failure is classified as an interruption — the paragraph goes
+  back to pending, never to an error.
+- **D-054 — Frontend text handling.** Document and provider text reaches the
+  page only through JSON APIs and is rendered exclusively with
+  ``textContent``/``createTextNode``; templates interpolate nothing but the
+  token and job ID. Highlight categories are distinguished by underline style
+  and icon, not color alone.
+
+## Release engineering (M3)
+
+- **D-060 — Coverage gate.** 85% branch coverage enforced in CI only on the core
+  logic packages (docxio, textmatch, models, validation, highlights, providers,
+  persistence, pipeline) — measured 91% at gate introduction. Web templates,
+  static assets, and CLI glue carry no numeric gate by design.
+- **D-061 — Actions pinned by SHA.** All workflow actions are pinned to commit
+  SHAs (resolved from the GitHub API at authoring time) with tag comments;
+  Dependabot updates them weekly.
+- **D-062 — `--max-retries` is real.** 0 disables the schema-repair retry; 1
+  (default, also the maximum) allows exactly one. The flag flows
+  ReviewConfig → ProviderSettings → the adapter loop.
+
 ## Prior work
 
 - **D-020 — Previous AI artifacts deleted.** The repo contained `.omo/` research
