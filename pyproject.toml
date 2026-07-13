@@ -91,7 +91,7 @@ ignore = [
 # textmatch's whole purpose is distinguishing lookalike Unicode variants (RUF001).
 "src/isai/textmatch.py" = ["RUF001"]
 "tests/**" = ["S", "PLR", "SIM117", "RUF001"]
-"scripts/**" = ["S"]
+"scripts/**" = ["S", "RUF001"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
