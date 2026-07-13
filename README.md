@@ -174,8 +174,10 @@ configuration changed (use `--restart` to start over).
   short paragraph.
 - Revision suggestions are justified as improvements to natural, specific,
   evidence-connected academic writing. IsAI never advises deliberate errors or
-  "detector evasion", and validation rejects any provider output containing
-  authorship claims, probabilities, fabricated quotes, or evasion advice.
+  "detector evasion". As defense-in-depth behind the reviewer prompt,
+  validation rejects fabricated quotes outright and rejects recognizable
+  authorship-claim, probability, and evasion language in provider output
+  (a pattern filter — thorough, but no language filter is exhaustive).
 
 ## Privacy
 
