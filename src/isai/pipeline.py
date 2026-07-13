@@ -194,6 +194,11 @@ def _verify_resume_safe(
     problems: list[str] = []
     if meta.source_sha256 != src_hash:
         problems.append("source document changed (SHA-256 mismatch)")
+    if meta.prompt_version != PROMPT_VERSION:
+        problems.append(
+            f"reviewer prompt version changed ({meta.prompt_version} -> {PROMPT_VERSION}); "
+            "results from different prompts must not mix in one report"
+        )
     if meta.extraction_fingerprint != extraction_fingerprint:
         problems.append("extraction configuration changed")
     if meta.config_fingerprint != config.fingerprint():
@@ -383,11 +388,21 @@ class JobRunner:
         self._on_event(kind, payload)
 
     def run(self) -> JobStatus:
+        meta = self.journal.meta()
+        if meta.status is JobStatus.COMPLETED:
+            # Never flip the status or duplicate anything; the only repairable
+            # gap is a crash after the COMPLETED commit but before the summary.
+            if not self.report.has_summary():
+                self.report.append_section(render_summary(meta, self.journal.tasks()))
+            self.emit("job_completed", job_id=meta.job_id)
+            return JobStatus.COMPLETED
+
         self._setup_providers()
         assert self._primary is not None
 
         self.journal.set_status(JobStatus.IN_PROGRESS)
-        self.emit("job_started", job_id=self.journal.meta().job_id)
+        self._reviewed_count = self._completed_primary_count()
+        self.emit("job_started", job_id=meta.job_id)
 
         roles = (
             [TaskRole.PRIMARY, TaskRole.SECOND_OPINION] if self._consensus else [TaskRole.PRIMARY]
@@ -405,10 +420,23 @@ class JobRunner:
             if status is not None:
                 return status
 
-        self.report.append_section(render_summary(self.journal.meta(), self.journal.tasks()))
+        # Status commits BEFORE the summary so the summary renders "completed"
+        # exactly as rebuild will; the marker guard plus the early-return repair
+        # above make every crash interleaving converge on one summary.
         self.journal.set_status(JobStatus.COMPLETED)
+        if not self.report.has_summary():
+            self.report.append_section(render_summary(self.journal.meta(), self.journal.tasks()))
         self.emit("job_completed", job_id=self.journal.meta().job_id)
         return JobStatus.COMPLETED
+
+    def _completed_primary_count(self) -> int:
+        """Rehydrate the review budget on resume so --max-paragraphs caps the
+        job, not each run."""
+        return sum(
+            1
+            for task in self.journal.tasks(TaskRole.PRIMARY)
+            if task.status is TaskStatus.COMPLETED
+        )
 
     # -- provider resolution ------------------------------------------------------
 

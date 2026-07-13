@@ -92,8 +92,10 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# textmatch's whole purpose is distinguishing lookalike Unicode variants (RUF001).
+# textmatch and the validation patterns deliberately handle lookalike Unicode
+# variants (curly quotes, Hebrew) — RUF001 is noise there.
 "src/isai/textmatch.py" = ["RUF001"]
+"src/isai/validation.py" = ["RUF001"]
 "tests/**" = ["S", "PLR", "SIM117", "RUF001"]
 "scripts/**" = ["S", "RUF001"]
 

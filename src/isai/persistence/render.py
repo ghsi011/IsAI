@@ -55,6 +55,7 @@ def result_marker(element_id: str, role: str, content_sha256: str) -> str:
 
 
 MARKER_PREFIX = "[//]: # (isai:result "
+SUMMARY_MARKER = "[//]: # (isai:summary)"
 
 
 def render_header(meta: JobMeta, total_elements: int, reviewable: int) -> str:
@@ -158,7 +159,7 @@ def render_task_section(element: DocElement, task: TaskRow) -> str:
     title = f"## {role_label} {element.display_number}{heading_note}"
 
     marker = result_marker(element.element_id, task.role.value, element.content_sha256)
-    lines = [marker, "", title, ""]
+    lines = [title, ""]
     lines.append(f"*Location:* `{element.location}` · *Style:* {md_escape(element.style_name)}")
     lines.append("")
     lines.append("**Text:**")
@@ -168,7 +169,10 @@ def render_task_section(element: DocElement, task: TaskRow) -> str:
 
     if task.status is TaskStatus.COMPLETED and task.result is not None:
         provider_note = f"*Reviewed by:* {task.provider}"
-        if task.agreement:
+        # Agreement renders only on the second-opinion section: the primary is
+        # appended before the second opinion runs, and live output must match
+        # rebuild output byte-for-byte.
+        if task.agreement and task.role.value == "second_opinion":
             provider_note += f" · *Consensus:* {task.agreement}"
         lines.append(provider_note)
         lines.append("")
@@ -181,6 +185,12 @@ def render_task_section(element: DocElement, task: TaskRow) -> str:
         lines.append("The run continued with the next paragraph; re-run with resume to retry.")
     elif task.status is TaskStatus.SKIPPED:
         lines.append("*Skipped (empty or excluded element).*")
+    lines.append("")
+    # The marker is the LAST line of the section: its durable presence implies
+    # every preceding byte of the section reached the disk first (writes land
+    # in file order), so reconciliation can treat marker == complete section
+    # even after a crash tears an append mid-write.
+    lines.append(marker)
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -198,6 +208,8 @@ def render_summary(meta: JobMeta, tasks: list[TaskRow]) -> str:
             signals[t.result.style_signal.value] = signals.get(t.result.style_signal.value, 0) + 1
     signal_line = ", ".join(f"{k}: {v}" for k, v in sorted(signals.items())) if signals else "none"
     lines = [
+        SUMMARY_MARKER,
+        "",
         "## Run summary",
         "",
         f"- **Job:** `{meta.job_id}` — {meta.status.value}",

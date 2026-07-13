@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 
 from isai.errors import ErrorCategory, IsaiError
-from isai.persistence.render import MARKER_PREFIX
+from isai.persistence.render import MARKER_PREFIX, SUMMARY_MARKER
 
 _MARKER_RE = re.compile(
     r"^\[//\]: # \(isai:result element=(?P<element>\S+) role=(?P<role>\S+) sha=(?P<sha>\S+)\)\s*$"
@@ -60,6 +60,12 @@ class ReportWriter:
                 ErrorCategory.FILESYSTEM,
                 f"could not write report file {self.path.name}: {exc.strerror}",
             ) from exc
+
+    def has_summary(self) -> bool:
+        if not self.path.is_file():
+            return False
+        with self.path.open("r", encoding="utf-8", errors="replace") as fh:
+            return any(line.startswith(SUMMARY_MARKER) for line in fh)
 
     def existing_markers(self) -> set[tuple[str, str]]:
         """(element_id, role) pairs whose sections are already in the file."""
