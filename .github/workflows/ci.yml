@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_PYTHON: "3.12"
+
+jobs:
+  format-lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+
+  typecheck:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run pyright
+
+  tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: Install Playwright chromium
+        run: uv run playwright install chromium
+      - name: Full test suite (mock CLIs only — never real providers)
+        run: >
+          uv run pytest tests
+          --junit-xml=junit.xml
+          --cov=isai.docxio --cov=isai.textmatch --cov=isai.models
+          --cov=isai.validation --cov=isai.highlights --cov=isai.providers
+          --cov=isai.persistence --cov=isai.pipeline
+          --cov-branch --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=85
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        if: always()
+        with:
+          name: test-results
+          path: |
+            junit.xml
+            coverage.xml
+          if-no-files-found: ignore
+
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - run: uv run python -m build
+      - run: uv run twine check dist/*
+      - name: Wheel smoke test in a clean environment
+        shell: pwsh
+        run: |
+          uv venv smoke-venv --python 3.12
+          $wheel = Get-ChildItem dist/*.whl | Select-Object -First 1
+          uv pip install --python smoke-venv/Scripts/python.exe $wheel.FullName
+          smoke-venv/Scripts/isai.exe --help
+          # doctor reports missing real CLIs without failing (no criticals on CI)
+          smoke-venv/Scripts/isai.exe doctor
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: dist
+          path: dist/
+
+  audit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked
+      - name: pip-audit runtime dependencies
+        run: |
+          uv export --no-dev --no-emit-project --format requirements-txt -o requirements-audit.txt
+          uv run pip-audit -r requirements-audit.txt
