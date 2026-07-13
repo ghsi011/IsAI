@@ -336,9 +336,9 @@ class Journal:
         """First (element, role) needing work, in document order, primary first."""
         role_clause = "task.role = ?" if len(roles) == 1 else "task.role IN (?, ?)"
         row = self._conn.execute(
-            "SELECT task.element_id, task.role"
+            "SELECT task.element_id, task.role"  # noqa: S608 - role_clause is a literal
             " FROM task JOIN element USING (element_id)"
-            f" WHERE {role_clause} AND task.status IN (?, ?)"  # noqa: S608 - static clause
+            f" WHERE {role_clause} AND task.status IN (?, ?)"
             " ORDER BY element.ord,"
             "  CASE task.role WHEN 'primary' THEN 0 ELSE 1 END LIMIT 1",
             [r.value for r in roles] + [TaskStatus.PENDING.value, TaskStatus.ACTIVE.value],
