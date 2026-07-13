@@ -150,20 +150,30 @@ def create_app(  # noqa: PLR0915 - route registration is linear, not complex
             journal.close()
 
     @app.get("/api/jobs/{job_id}/events")
-    async def events(job_id: str) -> StreamingResponse:
+    async def events(job_id: str, max_seconds: float | None = None) -> StreamingResponse:
+        """SSE stream of job events (IDs and statuses only, never text).
+
+        Ends at terminal job states; the browser's EventSource reconnects and the
+        page re-fetches authoritative state. ``max_seconds`` bounds the connection
+        (used by tests, whose HTTP client buffers whole responses)."""
         job = jobs.get(job_id)
 
         async def stream() -> AsyncIterator[str]:
             q = job.subscribe()
             loop = asyncio.get_running_loop()
+            deadline = loop.time() + max_seconds if max_seconds and max_seconds > 0 else None
             try:
-                while True:
+                while deadline is None or loop.time() < deadline:
                     try:
-                        event = await loop.run_in_executor(None, q.get, True, 15.0)
+                        event = await loop.run_in_executor(None, q.get, True, _keepalive_seconds())
                     except Exception:
+                        if deadline is not None and not job.running:
+                            break
                         yield ": keep-alive\n\n"
                         continue
                     yield f"event: {event['kind']}\ndata: {json.dumps(event)}\n\n"
+                    if event["kind"] in ("job_completed", "job_failed"):
+                        break
             finally:
                 job.unsubscribe(q)
 
@@ -244,6 +254,14 @@ def create_app(  # noqa: PLR0915 - route registration is linear, not complex
         return JSONResponse({"ok": True})
 
     return app
+
+
+def _keepalive_seconds() -> float:
+    """SSE keep-alive interval; overridable for tests."""
+    try:
+        return float(os.environ.get("ISAI_SSE_KEEPALIVE_SECONDS", "15"))
+    except ValueError:
+        return 15.0
 
 
 def _free_port() -> int:
