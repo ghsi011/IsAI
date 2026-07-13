@@ -339,7 +339,7 @@ class Journal:
         query = (
             "SELECT task.element_id, task.role"
             " FROM task JOIN element USING (element_id)"
-            f" WHERE task.role IN ({placeholders}) AND task.status IN (?, ?)"  # noqa: S608
+            f" WHERE task.role IN ({placeholders}) AND task.status IN (?, ?)"
             " ORDER BY element.ord,"
             "  CASE task.role WHEN 'primary' THEN 0 ELSE 1 END LIMIT 1"
         )
