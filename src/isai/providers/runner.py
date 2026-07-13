@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -33,6 +34,20 @@ BILLING_ENV_VARS = (
 )
 
 _GRACEFUL_WAIT_SECONDS = 3.0
+
+#: Active provider subprocess per thread, so a controller (the GUI's "stop
+#: provider process" button) can tree-kill the in-flight invocation of a job
+#: thread without any shared mutable state inside the adapters.
+_ACTIVE_BY_THREAD: dict[int, int] = {}
+
+
+def kill_active_process_of_thread(thread_ident: int) -> bool:
+    """Tree-kill whatever provider subprocess the given thread is running now."""
+    pid = _ACTIVE_BY_THREAD.get(thread_ident)
+    if pid is None:
+        return False
+    kill_process_tree(pid, force=True)
+    return True
 
 
 @dataclass(frozen=True)
@@ -112,22 +127,27 @@ def run_process(
     )
     stdin_bytes = stdin_text.encode("utf-8") if stdin_text is not None else None
     timed_out = False
+    thread_ident = threading.get_ident()
+    _ACTIVE_BY_THREAD[thread_ident] = process.pid
     try:
-        stdout_b, stderr_b = process.communicate(stdin_bytes, timeout=timeout_seconds)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        # Tree operations must run while the root is alive (see kill_process_tree):
-        # graceful tree close first, then a forced tree kill for whatever remains.
-        kill_process_tree(process.pid, force=False)
         try:
-            stdout_b, stderr_b = process.communicate(timeout=_GRACEFUL_WAIT_SECONDS)
+            stdout_b, stderr_b = process.communicate(stdin_bytes, timeout=timeout_seconds)
         except subprocess.TimeoutExpired:
-            kill_process_tree(process.pid, force=True)
+            timed_out = True
+            # Tree operations must run while the root is alive (see kill_process_tree):
+            # graceful tree close first, then a forced tree kill for whatever remains.
+            kill_process_tree(process.pid, force=False)
             try:
                 stdout_b, stderr_b = process.communicate(timeout=_GRACEFUL_WAIT_SECONDS)
-            except subprocess.TimeoutExpired:  # pragma: no cover - defensive
-                process.kill()
-                stdout_b, stderr_b = b"", b""
+            except subprocess.TimeoutExpired:
+                kill_process_tree(process.pid, force=True)
+                try:
+                    stdout_b, stderr_b = process.communicate(timeout=_GRACEFUL_WAIT_SECONDS)
+                except subprocess.TimeoutExpired:  # pragma: no cover - defensive
+                    process.kill()
+                    stdout_b, stderr_b = b"", b""
+    finally:
+        _ACTIVE_BY_THREAD.pop(thread_ident, None)
     duration = time.monotonic() - start
     return ProcessResult(
         argv=list(argv),

@@ -466,7 +466,7 @@ class JobRunner:
         if self._consensus:
             self.journal.mark_skipped(element.element_id, TaskRole.SECOND_OPINION)
 
-    def _process_primary(self, element: DocElement) -> JobStatus | None:
+    def _process_primary(self, element: DocElement) -> JobStatus | None:  # noqa: PLR0911
         """Run the 9-step protocol for one element. Non-None return ends the run."""
         assert self._primary is not None
         role = TaskRole.PRIMARY
@@ -512,6 +512,11 @@ class JobRunner:
             return None
 
         category = outcome.error_category or ErrorCategory.UNKNOWN
+        if self._should_stop():
+            # A user stop can kill the in-flight subprocess; the resulting failure
+            # is an interruption, not a paragraph error.
+            self._reset_to_pending(element.element_id, role)
+            return self._pause(ErrorCategory.INTERRUPTED, "stopped by user")
         if category in JOB_PAUSING_CATEGORIES:
             self._reset_to_pending(element.element_id, role)
             return self._pause(category, outcome.error_message)
@@ -594,6 +599,9 @@ class JobRunner:
             return None
 
         category = outcome.error_category or ErrorCategory.UNKNOWN
+        if self._should_stop():
+            self._reset_to_pending(element.element_id, role)
+            return self._pause(ErrorCategory.INTERRUPTED, "stopped by user")
         if category in JOB_PAUSING_CATEGORIES:
             self._reset_to_pending(element.element_id, role)
             return self._pause(category, outcome.error_message)

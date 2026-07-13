@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IsAI — review</title>
+  <link rel="stylesheet" href="/static/app.css?token={{ token }}">
+</head>
+<body data-token="{{ token }}" data-job-id="{{ job_id }}">
+  <header class="topbar">
+    <h1><a id="home-link" href="/?token={{ token }}">IsAI</a></h1>
+    <div id="job-meta" class="job-meta"></div>
+    <div class="controls" role="toolbar" aria-label="Job controls">
+      <button id="btn-pause" type="button">Pause after current</button>
+      <button id="btn-stop" type="button">Stop provider process</button>
+      <button id="btn-resume" type="button">Resume</button>
+      <button id="btn-rebuild" type="button">Rebuild report</button>
+      <a id="btn-report" class="button" href="#">Download report</a>
+    </div>
+  </header>
+
+  <section class="disclaimer compact" role="note">
+    Stylistic screening only — signals describe observable style, never authorship.
+    Highlighting is <em>exact text</em> based; page/line positions in Word may differ.
+    Analysis continues if you close this tab, but not if the IsAI process exits.
+  </section>
+
+  <div class="filterbar">
+    <label>Filter
+      <select id="filter">
+        <option value="all">All</option>
+        <option value="unanalyzed">Unanalyzed</option>
+        <option value="analyzing">Analyzing</option>
+        <option value="high_priority">High priority</option>
+        <option value="moderate_strong">Moderate + strong</option>
+        <option value="needs_source_check">Needs source check</option>
+        <option value="has_suggestions">Has suggestions</option>
+        <option value="disagreement">Provider disagreement</option>
+        <option value="errors">Errors</option>
+        <option value="short_indeterminate">Short / indeterminate</option>
+      </select>
+    </label>
+    <label class="grow">Search
+      <input type="search" id="search" placeholder="number, heading, text, category…">
+    </label>
+    <span id="progress" role="status"></span>
+  </div>
+
+  <main class="panes">
+    <section id="document-pane" class="document-pane" aria-label="Document"></section>
+    <aside id="analysis-pane" class="analysis-pane" aria-label="Analysis">
+      <p class="hint">Select a paragraph to see its analysis.</p>
+    </aside>
+  </main>
+  <script src="/static/job.js?token={{ token }}"></script>
+</body>
+</html>

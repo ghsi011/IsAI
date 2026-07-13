@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IsAI — style screening</title>
+  <link rel="stylesheet" href="/static/app.css?token={{ token }}">
+</head>
+<body data-token="{{ token }}">
+  <header class="topbar">
+    <h1>IsAI</h1>
+    <p class="tagline">AI-writing-style screening for .docx — <strong>not</strong> an authorship detector.</p>
+  </header>
+
+  <main class="index-main">
+    <section class="disclaimer" role="note">
+      IsAI flags <em>AI-associated stylistic patterns</em> and writing-quality issues for
+      human review. Style cannot prove authorship, and IsAI never claims a passage was
+      written by AI or by a human. The server is available only on this computer.
+    </section>
+
+    <section class="uploader" id="dropzone" aria-label="Upload a .docx document">
+      <p><strong>Drop a .docx here</strong> or</p>
+      <label class="file-label">
+        choose a file
+        <input type="file" id="file-input" accept=".docx">
+      </label>
+      <form id="upload-options">
+        <fieldset>
+          <legend>Review settings</legend>
+          <label>Provider
+            <select name="provider">
+              <option value="claude" selected>Claude (subscription)</option>
+              <option value="codex">Codex (ChatGPT)</option>
+              <option value="auto">Auto</option>
+              <option value="consensus">Consensus (two providers)</option>
+            </select>
+          </label>
+          <label>Min words <input type="number" name="min_words" value="50" min="1"></label>
+          <label><input type="checkbox" name="context_assisted" checked> Context-assisted review</label>
+          <label><input type="checkbox" name="include_tables" checked> Include tables</label>
+        </fieldset>
+      </form>
+      <p id="upload-status" role="status"></p>
+    </section>
+
+    <section class="job-list">
+      <h2>Jobs</h2>
+      <ul id="jobs"></ul>
+    </section>
+  </main>
+  <script src="/static/index.js?token={{ token }}"></script>
+</body>
+</html>

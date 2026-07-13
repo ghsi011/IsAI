@@ -1,0 +1,204 @@
+/* IsAI GUI — local stylesheet, no external assets. */
+
+:root {
+  --bg: #f7f7f5;
+  --panel: #ffffff;
+  --ink: #1c1c1c;
+  --muted: #666;
+  --accent: #2f5d8a;
+  --border: #d9d9d4;
+  --signal-none: #4a7c59;
+  --signal-mild: #a08a2e;
+  --signal-moderate: #c07a2a;
+  --signal-strong: #b04a3a;
+  --signal-indeterminate: #7a7a7a;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 1.2rem; margin: 0; }
+.topbar h1 a { color: var(--accent); text-decoration: none; }
+.tagline { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.job-meta { color: var(--muted); font-size: 0.9rem; flex: 1; }
+
+.disclaimer {
+  margin: 0.8rem 1rem;
+  padding: 0.7rem 1rem;
+  background: #fdf6e3;
+  border: 1px solid #e6d9a8;
+  border-radius: 6px;
+  font-size: 0.92rem;
+}
+.disclaimer.compact { font-size: 0.85rem; padding: 0.45rem 0.8rem; }
+
+.index-main { max-width: 720px; margin: 0 auto; padding: 1rem; }
+
+.uploader {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  text-align: center;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.uploader.dragover { border-color: var(--accent); background: #eef4fa; }
+.file-label {
+  display: inline-block;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.file-label input { display: none; }
+.uploader fieldset {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: left;
+  display: grid;
+  gap: 0.4rem;
+}
+.uploader label { display: block; font-size: 0.9rem; }
+#upload-status { min-height: 1.2em; color: var(--accent); }
+
+.job-list ul { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+.job-list li {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.job-list a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.job-list .muted { color: var(--muted); font-size: 0.85rem; }
+.job-list button { margin-left: auto; }
+
+.filterbar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+.filterbar .grow { flex: 1; }
+.filterbar input[type="search"] { width: 100%; }
+#progress { color: var(--muted); }
+
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  gap: 0;
+  height: calc(100vh - 170px);
+}
+.document-pane { overflow-y: auto; padding: 0.8rem 1rem; }
+.analysis-pane {
+  overflow-y: auto;
+  padding: 0.8rem 1rem;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+.hint { color: var(--muted); }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+}
+.card:focus-visible, .card.selected { outline: 2px solid var(--accent); }
+.card-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+.card-head .num { font-weight: 700; color: var(--ink); }
+.card.heading-card .text { font-weight: 700; }
+.card .text { white-space: pre-wrap; line-height: 1.5; }
+
+.chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0 0.55em;
+  font-size: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.chip.signal-none { color: var(--signal-none); border-color: currentColor; }
+.chip.signal-mild { color: var(--signal-mild); border-color: currentColor; }
+.chip.signal-moderate { color: var(--signal-moderate); border-color: currentColor; }
+.chip.signal-strong { color: var(--signal-strong); border-color: currentColor; font-weight: 700; }
+.chip.signal-indeterminate { color: var(--signal-indeterminate); border-color: currentColor; }
+.chip.status-active { color: var(--accent); border-color: currentColor; }
+.chip.status-error { color: var(--signal-strong); border-color: currentColor; }
+
+/* Highlight kinds: distinguishable by decoration STYLE, not color alone. */
+mark.hl { background: transparent; padding: 0; border-radius: 2px; }
+mark.hl-indicator { text-decoration: underline wavy var(--signal-moderate); background: #fbeee0; }
+mark.hl-counter_indicator { text-decoration: underline solid var(--signal-none); background: #e7f2ea; }
+mark.hl-quality { text-decoration: underline dashed var(--signal-mild); background: #f7f2dc; }
+mark.hl-citation { text-decoration: underline double var(--accent); background: #e8eef5; }
+mark.hl-suggestion { text-decoration: underline dotted var(--signal-strong); background: #f7e5e2; }
+mark.hl.multi { outline: 1px dotted var(--muted); }
+mark.hl.focused { outline: 2px solid var(--accent); }
+
+.analysis-pane h2 { font-size: 1rem; margin: 0.3rem 0; }
+.analysis-pane h3 { font-size: 0.9rem; margin: 0.8rem 0 0.3rem; }
+.analysis-pane .kv { color: var(--muted); font-size: 0.85rem; }
+.annotation {
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 4px;
+  padding: 0.45rem 0.6rem;
+  margin: 0.35rem 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.annotation:focus-visible, .annotation.focused { outline: 2px solid var(--accent); }
+.annotation .cat { font-weight: 600; font-size: 0.8rem; }
+.annotation .quote { font-style: italic; color: var(--muted); display: block; }
+.annotation.kind-indicator { border-left-color: var(--signal-moderate); }
+.annotation.kind-counter_indicator { border-left-color: var(--signal-none); }
+.annotation.kind-quality { border-left-color: var(--signal-mild); }
+.annotation.kind-citation { border-left-color: var(--accent); }
+.annotation.kind-suggestion { border-left-color: var(--signal-strong); }
+.annotation .unresolved { color: var(--signal-strong); font-size: 0.8rem; }
+
+.controls button, .controls .button, .job-list button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: none;
+}
+.controls button:hover, .controls .button:hover { border-color: var(--accent); color: var(--accent); }
+.badge-second { background: #eef; border: 1px solid #ccd; border-radius: 4px; padding: 0 0.4em; font-size: 0.75rem; }
