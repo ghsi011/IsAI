@@ -57,7 +57,7 @@ jobs:
           --cov=isai.persistence --cov=isai.pipeline
           --cov-branch --cov-report=term-missing --cov-report=xml
           --cov-fail-under=85
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: test-results
@@ -85,7 +85,7 @@ jobs:
           smoke-venv/Scripts/isai.exe --help
           # doctor reports missing real CLIs without failing (no criticals on CI)
           smoke-venv/Scripts/isai.exe doctor
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
