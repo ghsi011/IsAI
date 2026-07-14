@@ -12,6 +12,22 @@
   --signal-moderate: #c07a2a;
   --signal-strong: #b04a3a;
   --signal-indeterminate: #7a7a7a;
+
+  /* Semantic annotation colors: red = problem (AI-associated pattern),
+     green = good (counter-indicator), amber = writing-quality issue,
+     blue = informational / verify (citations), purple = actionable advice
+     (revision suggestions). Underline styles still differ per kind so color
+     is never the only cue. */
+  --hl-bad: #c0392b;
+  --hl-bad-bg: #fae5e2;
+  --hl-good: #2e7d43;
+  --hl-good-bg: #e2f2e6;
+  --hl-warn: #b07d10;
+  --hl-warn-bg: #faf0d5;
+  --hl-info: #2f5d8a;
+  --hl-info-bg: #e4edf6;
+  --hl-action: #6d4c9f;
+  --hl-action-bg: #ece5f6;
 }
 
 * { box-sizing: border-box; }
@@ -157,13 +173,16 @@ body {
 .chip.status-active { color: var(--accent); border-color: currentColor; }
 .chip.status-error { color: var(--signal-strong); border-color: currentColor; }
 
-/* Highlight kinds: distinguishable by decoration STYLE, not color alone. */
+/* Highlight kinds: semantic color + a distinct decoration STYLE per kind,
+   so the meaning survives color-vision differences. A span covered by several
+   kinds carries all their classes; rules are ordered least → most severe so
+   the cascade lets the most important meaning win (red beats everything). */
 mark.hl { background: transparent; padding: 0; border-radius: 2px; }
-mark.hl-indicator { text-decoration: underline wavy var(--signal-moderate); background: #fbeee0; }
-mark.hl-counter_indicator { text-decoration: underline solid var(--signal-none); background: #e7f2ea; }
-mark.hl-quality { text-decoration: underline dashed var(--signal-mild); background: #f7f2dc; }
-mark.hl-citation { text-decoration: underline double var(--accent); background: #e8eef5; }
-mark.hl-suggestion { text-decoration: underline dotted var(--signal-strong); background: #f7e5e2; }
+mark.hl-citation { text-decoration: underline double var(--hl-info); background: var(--hl-info-bg); }
+mark.hl-suggestion { text-decoration: underline dotted var(--hl-action); background: var(--hl-action-bg); }
+mark.hl-quality { text-decoration: underline dashed var(--hl-warn); background: var(--hl-warn-bg); }
+mark.hl-counter_indicator { text-decoration: underline solid var(--hl-good); background: var(--hl-good-bg); }
+mark.hl-indicator { text-decoration: underline wavy var(--hl-bad); background: var(--hl-bad-bg); }
 mark.hl.multi { outline: 1px dotted var(--muted); }
 mark.hl.focused { outline: 2px solid var(--accent); }
 
@@ -182,11 +201,11 @@ mark.hl.focused { outline: 2px solid var(--accent); }
 .annotation:focus-visible, .annotation.focused { outline: 2px solid var(--accent); }
 .annotation .cat { font-weight: 600; font-size: 0.8rem; }
 .annotation .quote { font-style: italic; color: var(--muted); display: block; }
-.annotation.kind-indicator { border-left-color: var(--signal-moderate); }
-.annotation.kind-counter_indicator { border-left-color: var(--signal-none); }
-.annotation.kind-quality { border-left-color: var(--signal-mild); }
-.annotation.kind-citation { border-left-color: var(--accent); }
-.annotation.kind-suggestion { border-left-color: var(--signal-strong); }
+.annotation.kind-indicator { border-left-color: var(--hl-bad); background: var(--hl-bad-bg); }
+.annotation.kind-counter_indicator { border-left-color: var(--hl-good); background: var(--hl-good-bg); }
+.annotation.kind-quality { border-left-color: var(--hl-warn); background: var(--hl-warn-bg); }
+.annotation.kind-citation { border-left-color: var(--hl-info); background: var(--hl-info-bg); }
+.annotation.kind-suggestion { border-left-color: var(--hl-action); background: var(--hl-action-bg); }
 .annotation .unresolved { color: var(--signal-strong); font-size: 0.8rem; }
 
 .controls button, .controls .button, .job-list button {
