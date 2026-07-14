@@ -134,6 +134,13 @@ def run_process(
     a missing executable (``FileNotFoundError``) so callers can classify it."""
     if not argv:
         raise ValueError("argv must not be empty")
+    # npm-installed CLIs (codex) ship as .cmd shims; CreateProcess resolves only
+    # .exe from PATH, so resolve the executable with PATHEXT semantics ourselves.
+    # Still an argument array — no shell parsing is introduced.
+    resolved = shutil.which(argv[0])
+    if resolved is None:
+        raise FileNotFoundError(argv[0])
+    argv = [resolved, *argv[1:]]
     start = time.monotonic()
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     process = subprocess.Popen(  # noqa: S603
