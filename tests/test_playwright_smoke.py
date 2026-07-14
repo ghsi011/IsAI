@@ -88,6 +88,11 @@ def test_gui_smoke(gui_server: str, tmp_path: Path) -> None:
         # Paragraph results appear live (SSE + refetch).
         page.wait_for_selector(".card .chip[class*='signal-']", timeout=120_000)
 
+        # Let the job finish before interacting: while paragraphs stream in,
+        # each event re-renders the cards, which can detach an element between
+        # Playwright resolving it and clicking it on slow CI runners.
+        page.wait_for_selector('#job-meta:has-text("completed")', timeout=180_000)
+
         # Click a highlighted phrase → its annotation focuses.
         page.wait_for_selector("mark.hl", timeout=120_000)
         page.click("mark.hl")
