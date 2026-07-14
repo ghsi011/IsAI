@@ -79,7 +79,7 @@ function cardMatchesFilter(card) {
 function cardMatchesSearch(card, detail) {
   const q = searchEl.value.trim().toLowerCase();
   if (!q) return true;
-  if (String(card.display_number) === q) return true;
+  if (String(card.review_number || "") === q) return true;
   if ((card.nearest_heading || "").toLowerCase().includes(q)) return true;
   if ((card.style_signal || "").includes(q)) return true;
   if (detail && detail.element.text.toLowerCase().includes(q)) return true;
@@ -107,7 +107,7 @@ function renderCard(card, detail) {
   head.className = "card-head";
   const num = document.createElement("span");
   num.className = "num";
-  num.textContent = "¶" + card.display_number;
+  num.textContent = card.review_number ? "¶" + card.review_number : "§";
   head.appendChild(num);
   if (card.kind === "table") head.appendChild(chip("table cell"));
   if (card.style_name && card.style_name !== "Normal") head.appendChild(chip(card.style_name));
@@ -320,7 +320,7 @@ function renderResultInto(pane, detail, result, heading) {
 function renderAnalysis(detail) {
   analysisPane.replaceChildren();
   const h2 = document.createElement("h2");
-  h2.textContent = "Paragraph " + detail.element.display_number;
+  h2.textContent = "Paragraph " + (detail.element.review_number || detail.element.display_number);
   analysisPane.appendChild(h2);
   const kv = document.createElement("p");
   kv.className = "kv";

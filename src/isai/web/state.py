@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from isai.config import ReviewConfig
 from isai.docxio import DocElement
 from isai.highlights import split_segments
 from isai.persistence import Journal, TaskRole, TaskStatus
@@ -24,11 +25,14 @@ def _result_payload(task: TaskRow) -> dict[str, Any] | None:
     return payload
 
 
-def element_card(element: DocElement, primary: TaskRow) -> dict[str, Any]:
+def element_card(
+    element: DocElement, primary: TaskRow, review_number: int | None
+) -> dict[str, Any]:
     """The lightweight card entry used by the document pane list."""
     return {
         "element_id": element.element_id,
         "display_number": element.display_number,
+        "review_number": review_number,
         "kind": element.kind,
         "location": element.location,
         "style_name": element.style_name,
@@ -56,7 +60,18 @@ def job_state(journal: Journal, *, running: bool) -> dict[str, Any]:
     meta = journal.meta()
     elements = journal.elements()
     primaries = {t.element_id: t for t in journal.tasks(TaskRole.PRIMARY)}
-    cards = [element_card(e, primaries[e.element_id]) for e in elements]
+    # Front matter, names, and list stubs below the word threshold are neither
+    # reviewed nor displayed; headings stay as document structure. Reviewable
+    # paragraphs are renumbered 1..N so the first substantive one is ¶1.
+    from isai.pipeline import review_number_map, reviewable_element  # noqa: PLC0415
+
+    min_words = ReviewConfig.model_validate_json(meta.config_json).min_words
+    numbers = review_number_map(elements, min_words)
+    cards = [
+        element_card(e, primaries[e.element_id], numbers.get(e.element_id))
+        for e in elements
+        if e.is_heading or reviewable_element(e, min_words)
+    ]
     return {
         "job": {
             "job_id": meta.job_id,
@@ -78,6 +93,10 @@ def element_detail(journal: Journal, element_id: str) -> dict[str, Any]:
     """Full detail for one paragraph: text, highlights, segments, both results."""
     element = journal.element(element_id)
     primary = journal.task(element_id, TaskRole.PRIMARY)
+    from isai.pipeline import review_number_map  # noqa: PLC0415
+
+    min_words = ReviewConfig.model_validate_json(journal.meta().config_json).min_words
+    review_number = review_number_map(journal.elements(), min_words).get(element_id)
     try:
         second = journal.task(element_id, TaskRole.SECOND_OPINION)
     except Exception:
@@ -91,6 +110,7 @@ def element_detail(journal: Journal, element_id: str) -> dict[str, Any]:
         "element": {
             "element_id": element.element_id,
             "display_number": element.display_number,
+            "review_number": review_number,
             "location": element.location,
             "style_name": element.style_name,
             "nearest_heading": element.nearest_heading,

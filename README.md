@@ -167,11 +167,12 @@ configuration changed (use `--restart` to start over).
   independent indicator types with exact quoted evidence; single features are
   never decisive. Formal tone, passive voice, technical terminology, correct
   grammar, and non-native phrasing are explicitly *not* penalized.
-- Short paragraphs (below `--min-words`) are reported as `indeterminate` —
-  "insufficient text for reliable stylistic assessment" — never criticized for
-  being short. With context assist on (default), neighbors are supplied and the
-  result is scoped to the *context window*, never attributed solely to the
-  short paragraph.
+- Fragments below `--min-words` (default 50) — names, dates, list stubs,
+  title-page lines — are **skipped entirely**: no provider call, no report
+  section, no GUI card. Reviewable paragraphs are numbered 1..N in reading
+  order, so "Paragraph 1" is the first substantive paragraph regardless of how
+  much front matter precedes it. Lower `--min-words` if you want shorter
+  paragraphs included.
 - Revision suggestions are justified as improvements to natural, specific,
   evidence-connected academic writing. IsAI never advises deliberate errors or
   "detector evasion". As defense-in-depth behind the reviewer prompt,

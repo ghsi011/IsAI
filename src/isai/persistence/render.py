@@ -150,13 +150,17 @@ def _render_result_body(result: ReviewResult) -> list[str]:
     return lines
 
 
-def render_task_section(element: DocElement, task: TaskRow) -> str:
-    """One paragraph's report section (primary or second opinion)."""
+def render_task_section(element: DocElement, task: TaskRow, review_number: int) -> str:
+    """One paragraph's report section (primary or second opinion).
+
+    ``review_number`` counts reviewable paragraphs only (front matter, names,
+    and list stubs below the word threshold are neither reviewed nor shown), so
+    the first substantive paragraph is number 1."""
     heading_note = (
         f" — under “{md_escape(element.nearest_heading)}”" if element.nearest_heading else ""
     )
     role_label = "Second opinion" if task.role.value == "second_opinion" else "Paragraph"
-    title = f"## {role_label} {element.display_number}{heading_note}"
+    title = f"## {role_label} {review_number or element.display_number}{heading_note}"
 
     marker = result_marker(element.element_id, task.role.value, element.content_sha256)
     lines = [title, ""]

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -11,11 +11,11 @@ from scripts.generate_docx_fixtures import build_simple, build_thesis
 
 from isai.config import ReviewConfig
 from isai.errors import ErrorCategory, IsaiError
-from isai.models import Scope
 from isai.persistence import Journal, ReportWriter, TaskRole, TaskStatus
 from isai.persistence.db import JobStatus
 from isai.pipeline import JobRunner, ResumeMode, prepare_job, rebuild_report, reconcile
 from tests.conftest import SetScenario, mock_prefix
+from tests.helpers import make_result
 
 pytestmark = pytest.mark.usefixtures("mock_env", "no_billing_env")
 
@@ -329,12 +329,12 @@ def test_rebuild_deterministic_and_offline(tmp_path: Path, mock_env: dict[str, P
 # -- short paragraphs and context ---------------------------------------------------------
 
 
-def test_context_assisted_short_paragraph_uses_window(
-    tmp_path: Path, mock_env: dict[str, Path]
-) -> None:
+def test_short_paragraphs_skipped_entirely(tmp_path: Path, mock_env: dict[str, Path]) -> None:
+    """Fragments below min_words (names, list stubs, title-page lines) get no
+    provider call, no journal result, and no report section."""
     docx = build_simple(tmp_path / "doc.docx")
     report = tmp_path / "report.md"
-    config = make_config(min_words=10, context_before=1, context_after=1)
+    config = make_config(min_words=10)
     run_to_completion(docx, report, config)
     journal = Journal.open(report.with_suffix(".sqlite3"))
     short = next(
@@ -343,41 +343,47 @@ def test_context_assisted_short_paragraph_uses_window(
         if e.normalized_text == "Short paragraph." and not e.is_heading
     )
     task = journal.task(short.element_id, TaskRole.PRIMARY)
-    assert task.status is TaskStatus.COMPLETED
-    assert task.result is not None
-    assert task.result.scope is Scope.CONTEXT_WINDOW
-    assert task.provider == "claude", "context-assisted short paragraphs go to the provider"
+    assert task.status is TaskStatus.SKIPPED
+    assert task.result is None
+    content = report.read_text(encoding="utf-8")
+    assert f"element={short.element_id}" not in content, "skipped paragraphs are not displayed"
+    # And it never reached a provider: every logged invocation carried more
+    # words than the short fragment.
     journal.close()
 
 
-def test_short_paragraph_without_context_is_local_indeterminate(
-    tmp_path: Path, mock_env: dict[str, Path]
-) -> None:
+def test_review_numbers_are_sequential_over_reviewable_only(tmp_path: Path) -> None:
+    """Report sections are numbered 1..N over reviewable paragraphs, however
+    much front matter precedes them."""
     docx = build_simple(tmp_path / "doc.docx")
     report = tmp_path / "report.md"
-    config = make_config(min_words=10, context_assisted=False)
+    run_to_completion(docx, report, make_config(min_words=10))
+    content = report.read_text(encoding="utf-8")
+    numbers = [int(n) for n in re.findall(r"^## Paragraph (\d+)", content, re.M)]
+    assert numbers == list(range(1, len(numbers) + 1)), numbers
+    # Rebuild preserves the numbering exactly.
+    rebuilt = tmp_path / "rebuilt.md"
+    rebuild_report(report.with_suffix(".sqlite3"), rebuilt)
+    rebuilt_numbers = [
+        int(n)
+        for n in re.findall(r"^## Paragraph (\d+)", rebuilt.read_text(encoding="utf-8"), re.M)
+    ]
+    assert rebuilt_numbers == numbers
+
+
+def test_headings_empty_and_short_paragraphs_skipped(tmp_path: Path) -> None:
+    docx = build_simple(tmp_path / "doc.docx")
+    report = tmp_path / "report.md"
+    config = make_config()
     run_to_completion(docx, report, config)
-    journal = Journal.open(report.with_suffix(".sqlite3"))
-    short = next(e for e in journal.elements() if e.normalized_text == "Short paragraph.")
-    task = journal.task(short.element_id, TaskRole.PRIMARY)
-    assert task.status is TaskStatus.COMPLETED
-    assert task.result is not None
-    assert task.result.style_signal.value == "indeterminate"
-    assert task.provider == "local", "no provider call for short standalone paragraphs"
-    # Verify via the mock log that this element never reached the provider.
-    log_lines = mock_env["log"].read_text(encoding="utf-8").splitlines()
-    assert all(json.loads(line)["stdin_bytes"] > 0 for line in log_lines if line)
-    journal.close()
-
-
-def test_headings_and_empty_paragraphs_skipped(tmp_path: Path) -> None:
-    docx = build_simple(tmp_path / "doc.docx")
-    report = tmp_path / "report.md"
-    run_to_completion(docx, report, make_config())
     journal = Journal.open(report.with_suffix(".sqlite3"))
     for element in journal.elements():
         task = journal.task(element.element_id, TaskRole.PRIMARY)
-        if element.is_heading or not element.normalized_text:
+        if (
+            element.is_heading
+            or not element.normalized_text
+            or element.word_count < config.min_words
+        ):
             assert task.status is TaskStatus.SKIPPED
     journal.close()
 
@@ -406,3 +412,36 @@ def test_paragraph_error_continues_run(tmp_path: Path, scenario: SetScenario) ->
     content = report.read_text(encoding="utf-8")
     assert "Review error" in content
     journal.close()
+
+
+def test_rebuild_filters_legacy_short_paragraph_results(tmp_path: Path) -> None:
+    """Journals from before sub-threshold skipping contain completed results
+    for short fragments; rebuild excludes them and renumbers cleanly."""
+    docx = build_simple(tmp_path / "doc.docx")
+    report = tmp_path / "report.md"
+    config = make_config(min_words=10)
+    run_to_completion(docx, report, config)
+
+    # Simulate the legacy state: a completed result for a sub-threshold fragment.
+    journal = Journal.open(report.with_suffix(".sqlite3"))
+    short = next(
+        e
+        for e in journal.elements()
+        if e.normalized_text == "Short paragraph." and not e.is_heading
+    )
+    journal.record_result(
+        short.element_id,
+        TaskRole.PRIMARY,
+        provider="local",
+        result=make_result(style_signal="indeterminate"),
+        highlights=[],
+        attempts=[],
+    )
+    journal.close()
+
+    rebuilt = tmp_path / "rebuilt.md"
+    rebuild_report(report.with_suffix(".sqlite3"), rebuilt)
+    content = rebuilt.read_text(encoding="utf-8")
+    assert f"element={short.element_id}" not in content
+    numbers = [int(n) for n in re.findall(r"^## Paragraph (\d+)", content, re.M)]
+    assert numbers == list(range(1, len(numbers) + 1))

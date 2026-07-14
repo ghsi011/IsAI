@@ -268,7 +268,8 @@ def test_rebuild_endpoint(client: TestClient, tmp_path: Path) -> None:
     res = upload(client, tmp_path)
     job_id = res.json()["job_id"]
     wait_for_status(client, job_id, "completed")
-    assert client.post(f"/api/jobs/{job_id}/rebuild").status_code == 200
+    res = client.post(f"/api/jobs/{job_id}/rebuild")
+    assert res.status_code == 200, res.text
     report = client.get(f"/api/jobs/{job_id}/report")
     assert "Run summary" in report.text
 

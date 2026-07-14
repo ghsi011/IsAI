@@ -30,7 +30,7 @@ from isai.config import ProviderMode, ReviewConfig
 from isai.docxio import DocElement, extract_document, validate_docx_container
 from isai.errors import JOB_PAUSING_CATEGORIES, ErrorCategory, IsaiError
 from isai.highlights import Highlight, resolve_highlights
-from isai.models import Level, ReviewResult, Scope, StyleSignal
+from isai.models import ReviewResult, Scope, StyleSignal
 from isai.persistence import JobMeta, Journal, ReportWriter, TaskRole, TaskStatus
 from isai.persistence.db import JobStatus, utc_now_iso
 from isai.persistence.render import render_header, render_summary, render_task_section
@@ -41,12 +41,9 @@ from isai.providers.claude import ClaudeAdapter
 EventCallback = Callable[[str, dict[str, object]], None]
 StopCheck = Callable[[], bool]
 
-LOCAL_PROVIDER = "local"  # synthesized results (short standalone paragraphs)
-
-SHORT_STANDALONE_LIMITATIONS = (
-    "Below the minimum word threshold: too little text for any reliable stylistic "
-    "assessment. Authorship cannot be determined from style alone."
-)
+#: Provider tag used by pre-0.1.1 journals for locally synthesized short-paragraph
+#: results; kept only so old journals render/consensus-check cleanly.
+LOCAL_PROVIDER = "local"
 
 
 class ResumeMode(StrEnum):
@@ -101,8 +98,31 @@ def source_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _reviewable(element: DocElement) -> bool:
-    return bool(element.normalized_text) and not element.is_heading
+def reviewable_element(element: DocElement, min_words: int) -> bool:
+    """Headings, empty paragraphs, and fragments below the word threshold
+    (names, list stubs, title-page lines) are skipped outright: no provider
+    call, no report section, no GUI card."""
+    return (
+        bool(element.normalized_text) and not element.is_heading and element.word_count >= min_words
+    )
+
+
+def review_number_map(elements: list[DocElement], min_words: int) -> dict[str, int]:
+    """Stable 1-based numbering over reviewable paragraphs only, so the first
+    substantive paragraph is "Paragraph 1" no matter how much front matter
+    precedes it. Deterministic before the run starts (used by the live report,
+    rebuild, and the GUI alike)."""
+    numbers: dict[str, int] = {}
+    for element in elements:
+        if reviewable_element(element, min_words):
+            numbers[element.element_id] = len(numbers) + 1
+    return numbers
+
+
+def _journal_min_words(journal: Journal) -> int:
+    from isai.config import ReviewConfig  # noqa: PLC0415 - avoid module cycle
+
+    return ReviewConfig.model_validate_json(journal.meta().config_json).min_words
 
 
 def _in_range(element: DocElement, config: ReviewConfig) -> bool:
@@ -182,7 +202,7 @@ def prepare_job(
 
     # The report header must be durably on disk before any provider call.
     report = ReportWriter(paths.report)
-    reviewable = sum(1 for e in extraction.elements if _reviewable(e))
+    reviewable = sum(1 for e in extraction.elements if reviewable_element(e, config.min_words))
     report.create(render_header(meta, extraction.total_count, reviewable))
     return PreparedJob(journal, report, resumed=False, paths=paths)
 
@@ -228,16 +248,23 @@ def _verify_elements_match(journal: Journal, elements: list[DocElement]) -> None
 def reconcile(journal: Journal, report: ReportWriter) -> None:
     """Repair SQLite↔Markdown drift after a crash; never duplicates a section."""
     markers = report.existing_markers()
-    elements = {e.element_id: e for e in journal.elements()}
+    element_list = journal.elements()
+    elements = {e.element_id: e for e in element_list}
+    numbers = review_number_map(element_list, _journal_min_words(journal))
     for task in journal.tasks():
         if task.status not in (TaskStatus.COMPLETED, TaskStatus.ERROR):
+            continue
+        if task.element_id not in numbers:  # pre-0.1.1 sub-threshold results
             continue
         key = (task.element_id, task.role.value)
         if key in markers:
             if not task.markdown_written:  # crash between fsync and flag commit
                 journal.set_markdown_written(task.element_id, task.role)
         else:  # committed to SQLite but the section never reached the file
-            report.append_section(render_task_section(elements[task.element_id], task))
+            element = elements[task.element_id]
+            report.append_section(
+                render_task_section(element, task, numbers.get(task.element_id, 0))
+            )
             journal.set_markdown_written(task.element_id, task.role)
 
 
@@ -246,13 +273,22 @@ def _write_report_from_journal(
 ) -> None:
     meta = journal.meta()
     elements = journal.elements()
-    reviewable = sum(1 for e in elements if _reviewable(e))
-    report.create(render_header(meta, len(elements), reviewable))
+    min_words = _journal_min_words(journal)
+    numbers = review_number_map(elements, min_words)
+    report.create(render_header(meta, len(elements), len(numbers)))
     by_id = {e.element_id: e for e in elements}
     for task in journal.tasks():
-        if task.status in (TaskStatus.COMPLETED, TaskStatus.ERROR):
-            report.append_section(render_task_section(by_id[task.element_id], task))
-            journal.set_markdown_written(task.element_id, task.role)
+        if task.status not in (TaskStatus.COMPLETED, TaskStatus.ERROR):
+            continue
+        # Journals written before sub-threshold skipping may hold completed
+        # results for fragments; rebuilding filters them out so old jobs gain
+        # the clean report without new provider calls.
+        if task.element_id not in numbers:
+            continue
+        report.append_section(
+            render_task_section(by_id[task.element_id], task, numbers[task.element_id])
+        )
+        journal.set_markdown_written(task.element_id, task.role)
     if include_summary:
         report.append_section(render_summary(meta, journal.tasks()))
 
@@ -269,20 +305,6 @@ def rebuild_report(journal_path: Path, output: Path) -> None:
         _write_report_from_journal(journal, report, include_summary=include_summary)
     finally:
         journal.close()
-
-
-def _short_standalone_result(scope: Scope) -> ReviewResult:
-    return ReviewResult(
-        scope=scope,
-        style_signal=StyleSignal.INDETERMINATE,
-        assessment_confidence=Level.LOW,
-        review_priority=Level.LOW,
-        summary=(
-            "Insufficient text for reliable stylistic assessment; no review was "
-            "requested from a provider for this short paragraph."
-        ),
-        limitations_note=SHORT_STANDALONE_LIMITATIONS,
-    )
 
 
 def _context_chain(
@@ -383,6 +405,7 @@ class JobRunner:
         self._consensus = config.provider_mode is ProviderMode.CONSENSUS
         self._primary: ReviewProvider | None = None
         self._second: ReviewProvider | None = None
+        self._numbers = review_number_map(self.journal.elements(), config.min_words)
 
     def emit(self, kind: str, **payload: object) -> None:
         self._on_event(kind, payload)
@@ -511,12 +534,14 @@ class JobRunner:
         if self._consensus:
             self.journal.mark_skipped(element.element_id, TaskRole.SECOND_OPINION)
 
-    def _process_primary(self, element: DocElement) -> JobStatus | None:  # noqa: PLR0911
+    def _process_primary(self, element: DocElement) -> JobStatus | None:
         """Run the 9-step protocol for one element. Non-None return ends the run."""
         assert self._primary is not None
         role = TaskRole.PRIMARY
 
-        if not _reviewable(element) or not _in_range(element, self.config):
+        if not reviewable_element(element, self.config.min_words) or not _in_range(
+            element, self.config
+        ):
             self._skip(element)
             return None
         if (
@@ -536,11 +561,6 @@ class JobRunner:
 
         # (2)-(3) build task, invoke, validate
         task = build_review_task(self.journal, element, self.config)
-        if task.scope is Scope.PARAGRAPH and element.word_count < self.config.min_words:
-            result = _short_standalone_result(Scope.PARAGRAPH)
-            self._commit_success(element, role, LOCAL_PROVIDER, result, [])
-            return None
-
         outcome = self._primary.review(task)
 
         if outcome.ok and outcome.result is not None:
@@ -704,7 +724,9 @@ class JobRunner:
 
     def _append_markdown(self, element: DocElement, role: TaskRole) -> None:
         task = self.journal.task(element.element_id, role)
-        self.report.append_section(render_task_section(element, task))
+        self.report.append_section(
+            render_task_section(element, task, self._numbers.get(element.element_id, 0))
+        )
         self.journal.set_markdown_written(element.element_id, role)
 
     def _pause(self, category: ErrorCategory, message: str) -> JobStatus:

@@ -8,6 +8,15 @@ All notable changes to IsAI are documented here. The format follows
 
 Initial release.
 
+### Changed
+- Paragraphs below the `--min-words` threshold (names, list stubs, title-page
+  lines) are skipped entirely — no provider call, no report section, no GUI
+  card — and reviewable paragraphs are renumbered 1..N. `isai rebuild` applies
+  the same filtering to journals recorded before this change.
+- GUI highlight colors are semantic: red = AI-associated indicator, green =
+  counter-indicator, amber = quality issue, blue = citation, purple =
+  suggestion.
+
 ### Added
 - `isai review`: paragraph-by-paragraph stylistic screening of `.docx` files via
   the user's own `claude` (Claude.ai subscription) or `codex` (ChatGPT) CLI.

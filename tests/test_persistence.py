@@ -170,7 +170,7 @@ def test_append_and_marker_scan(tmp_path: Path, elements: list[DocElement]) -> N
         highlights=[],
         attempts=[],
     )
-    section = render_task_section(element, journal.task(element.element_id, TaskRole.PRIMARY))
+    section = render_task_section(element, journal.task(element.element_id, TaskRole.PRIMARY), 1)
     report.append_section(section)
     markers = report.existing_markers()
     assert (element.element_id, "primary") in markers
@@ -195,7 +195,7 @@ def test_concurrent_reader_sees_valid_report_mid_run(
             attempts=[],
         )
         report.append_section(
-            render_task_section(element, journal.task(element.element_id, TaskRole.PRIMARY))
+            render_task_section(element, journal.task(element.element_id, TaskRole.PRIMARY), 1)
         )
         # Reader between appends: file is always complete and parseable.
         mid = (tmp_path / "report.md").read_text(encoding="utf-8")
@@ -224,9 +224,10 @@ def rebuild_markdown(journal: Journal) -> str:
     tasks = journal.tasks()
     parts = [render_header(meta, len(elements), len(elements))]
     parts.extend(
-        render_task_section(elements[t.element_id], t)
-        for t in tasks
-        if t.status in (TaskStatus.COMPLETED, TaskStatus.ERROR)
+        render_task_section(elements[t.element_id], t, i + 1)
+        for i, t in enumerate(
+            t for t in tasks if t.status in (TaskStatus.COMPLETED, TaskStatus.ERROR)
+        )
     )
     parts.append(render_summary(meta, tasks))
     return "".join(parts)

@@ -113,6 +113,17 @@ are appended at the bottom of each section.
   (default, also the maximum) allows exactly one. The flag flows
   ReviewConfig → ProviderSettings → the adapter loop.
 
+## Post-release adjustments
+
+- **D-070 — Sub-threshold paragraphs are skipped, not reviewed (user decision,
+  2026-07-14).** The original spec reported short paragraphs as ``indeterminate``
+  (standalone) or reviewed them in a context window. Real-thesis usage showed this
+  buries the report under title-page/list noise and spends provider usage on
+  fragments, so paragraphs below ``min_words`` are now excluded from review and
+  display entirely, and reviewable paragraphs are renumbered 1..N. ``rebuild``
+  filters legacy journals the same way. Users who want short paragraphs reviewed
+  lower ``--min-words``.
+
 ## Prior work
 
 - **D-020 — Previous AI artifacts deleted.** The repo contained `.omo/` research
