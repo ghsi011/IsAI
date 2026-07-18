@@ -141,6 +141,10 @@ isai review thesis.docx --output thesis-review.md --resume
 
 # Rebuild the Markdown deterministically from the journal (no provider calls):
 isai rebuild thesis-review.sqlite3 --output thesis-review.md
+
+# Move a review to another PC: export there, import here (viewing needs no .docx):
+isai export <job-id-or-journal-path> --output thesis-review.sqlite3
+isai import thesis-review.sqlite3
 ```
 
 Selected options (see `isai review --help` for all): `--min-words` (default
@@ -192,6 +196,9 @@ configuration changed (use `--restart` to start over).
 - No telemetry, no analytics, no network access except the provider CLIs'.
 - GUI jobs (uploaded copy, report, journal) live under `%LOCALAPPDATA%\IsAI\jobs`;
   delete them in the GUI or with `isai delete-job JOB_ID`.
+- `isai export` / `isai import` move a finished (or in-progress) review between
+  PCs as a single journal file — it contains the full document text, so
+  transfer it as carefully as the document itself.
 
 ## Known DOCX limitations
 

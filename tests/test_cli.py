@@ -267,3 +267,75 @@ def test_kill_mid_run_then_resume(tmp_path: Path) -> None:
     markers = [line for line in final.splitlines() if line.startswith("[//]: # (isai:result")]
     assert len(markers) == len(set(markers)), "resume duplicated a section"
     assert "## Run summary" in final
+
+
+# -- export / import ---------------------------------------------------------------
+
+
+def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review on 'PC 1' → export → import on 'PC 2' → viewable job, identical report."""
+    docx = build_thesis(tmp_path / "thesis.docx", paragraphs=3)
+    report = tmp_path / "out.md"
+    assert (
+        runner.invoke(
+            app, ["review", str(docx), "--output", str(report), "--min-words", "10"]
+        ).exit_code
+        == 0
+    )
+
+    exported = tmp_path / "transfer" / "thesis-review.sqlite3"
+    result = runner.invoke(
+        app, ["export", str(report.with_suffix(".sqlite3")), "--output", str(exported)]
+    )
+    assert result.exit_code == 0, result.output
+    assert exported.is_file()
+
+    # "PC 2": fresh app-data directory.
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "pc2-appdata"))
+    result = runner.invoke(app, ["import", str(exported)])
+    assert result.exit_code == 0, result.output
+    assert "imported" in result.output
+
+    jobs_dir = tmp_path / "pc2-appdata" / "IsAI" / "jobs"
+    job_dirs = list(jobs_dir.iterdir())
+    assert len(job_dirs) == 1
+    imported_md = (job_dirs[0] / "report.md").read_text(encoding="utf-8")
+    original_md = report.read_text(encoding="utf-8")
+    assert imported_md == original_md, "imported report must equal the original"
+
+    listing = runner.invoke(app, ["jobs"])
+    assert "thesis.docx" in listing.output or "completed" in listing.output
+
+
+def test_export_by_job_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    docx = build_thesis(tmp_path / "thesis.docx", paragraphs=2)
+    report = tmp_path / "out.md"
+    runner.invoke(app, ["review", str(docx), "--output", str(report), "--min-words", "10"])
+
+    # Place it as a GUI job, then export by directory job ID.
+    job_dir = tmp_path / "appdata" / "IsAI" / "jobs" / "abc123def456"
+    safe_copy_journal(report.with_suffix(".sqlite3"), job_dir / "report.sqlite3")
+    exported = tmp_path / "by-id.sqlite3"
+    result = runner.invoke(app, ["export", "abc123def456", "--output", str(exported)])
+    assert result.exit_code == 0, result.output
+    assert exported.is_file()
+
+
+def test_export_unknown_job_errors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    result = runner.invoke(
+        app, ["export", "nope-not-a-job", "--output", str(tmp_path / "x.sqlite3")]
+    )
+    assert result.exit_code == 4
+    assert "isai jobs" in result.output
+
+
+def test_import_rejects_non_journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+    bogus = tmp_path / "not-a-journal.sqlite3"
+    bogus.write_text("just text, not sqlite", encoding="utf-8")
+    result = runner.invoke(app, ["import", str(bogus)])
+    assert result.exit_code in (1, 3, 5)
+    jobs_dir = tmp_path / "appdata" / "IsAI" / "jobs"
+    assert not jobs_dir.is_dir() or not list(jobs_dir.iterdir()), "no leftover job dir"

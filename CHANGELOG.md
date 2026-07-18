@@ -18,6 +18,9 @@ Initial release.
   suggestion.
 
 ### Added
+- `isai export` / `isai import`: move a review between PCs as a single journal
+  file (consistent snapshot via SQLite backup even mid-run); imported jobs are
+  fully viewable in the GUI without the original .docx.
 - `isai review`: paragraph-by-paragraph stylistic screening of `.docx` files via
   the user's own `claude` (Claude.ai subscription) or `codex` (ChatGPT) CLI.
 - Crash-safe incremental Markdown report + authoritative SQLite journal with

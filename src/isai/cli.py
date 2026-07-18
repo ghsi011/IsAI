@@ -206,6 +206,122 @@ def doctor(
         raise typer.Exit(1)
 
 
+def _resolve_journal(job_or_path: str) -> Path:
+    """Accept either a journal file path or a GUI job ID from `isai jobs`."""
+    from isai.doctor import app_data_dir  # noqa: PLC0415
+
+    as_path = Path(job_or_path)
+    if as_path.is_file():
+        return as_path
+    for job_dir in (app_data_dir() / "jobs").glob("*"):
+        journal_path = job_dir / "report.sqlite3"
+        if not journal_path.is_file():
+            continue
+        if job_dir.name == job_or_path:
+            return journal_path
+        try:
+            from isai.persistence import Journal  # noqa: PLC0415
+
+            journal = Journal.open(journal_path)
+            matches = journal.meta().job_id == job_or_path
+            journal.close()
+            if matches:
+                return journal_path
+        except IsaiError:
+            continue
+    raise IsaiError(
+        ErrorCategory.CONFIGURATION,
+        f"'{job_or_path}' is neither a journal file nor a known job ID (see `isai jobs`)",
+    )
+
+
+@app.command()
+def export(
+    job: Annotated[
+        str, typer.Argument(help="A job ID from `isai jobs`, or a REPORT.sqlite3 path.")
+    ],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Destination .sqlite3 file.")],
+) -> None:
+    """Export a review as a single journal file, safe to move to another PC.
+
+    The snapshot is taken with SQLite's backup API, so it is consistent even if
+    the job is still running. The file contains the full document text — treat
+    it as confidentially as the document itself.
+    """
+    from isai.persistence import Journal  # noqa: PLC0415
+    from isai.persistence.db import safe_copy_journal  # noqa: PLC0415
+
+    try:
+        source = _resolve_journal(job)
+        safe_copy_journal(source, output)
+        journal = Journal.open(output)  # sanity-check the snapshot
+        meta = journal.meta()
+        journal.close()
+    except IsaiError as exc:
+        raise _fail(exc) from exc
+    typer.secho(f"exported {meta.source_filename} ({meta.status.value}) -> {output}", fg="green")
+    typer.echo("import it elsewhere with: isai import " + output.name)
+
+
+@app.command("import")
+def import_journal(
+    journal_file: Annotated[
+        Path, typer.Argument(help="A journal (.sqlite3) exported from another IsAI.")
+    ],
+    name: Annotated[
+        str | None, typer.Option("--name", help="Display name shown in the GUI job list.")
+    ] = None,
+) -> None:
+    """Import an exported journal as a viewable job in the GUI job list.
+
+    The Markdown report is regenerated locally (no provider calls). Viewing,
+    filtering, and highlights fully work; resuming an unfinished imported job
+    would additionally need the original .docx.
+    """
+    import json as json_module  # noqa: PLC0415
+    import uuid  # noqa: PLC0415
+
+    from isai.doctor import app_data_dir  # noqa: PLC0415
+    from isai.persistence import Journal  # noqa: PLC0415
+    from isai.persistence.db import safe_copy_journal  # noqa: PLC0415
+    from isai.pipeline import rebuild_report  # noqa: PLC0415
+    from isai.web.jobs import sanitize_filename  # noqa: PLC0415
+
+    job_id = uuid.uuid4().hex[:12]
+    job_dir = app_data_dir() / "jobs" / job_id
+    try:
+        try:
+            # Snapshot-copy first, then validate the copy end to end.
+            safe_copy_journal(journal_file, job_dir / "report.sqlite3")
+            journal = Journal.open(job_dir / "report.sqlite3")
+            meta = journal.meta()
+            element_count = len(journal.elements())
+            journal.close()
+            display_name = sanitize_filename(name or meta.source_filename)
+            (job_dir / "meta.json").write_text(
+                json_module.dumps({"display_name": display_name}), encoding="utf-8"
+            )
+            rebuild_report(job_dir / "report.sqlite3", job_dir / "report.md")
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
+    except IsaiError as exc:
+        raise _fail(exc) from exc
+    except Exception as exc:  # unreadable/foreign file → clean error, no leftovers
+        typer.secho(
+            f"error (document): not a usable IsAI journal: {journal_file.name}",
+            fg="red",
+            err=True,
+        )
+        raise typer.Exit(3) from exc
+    typer.secho(
+        f"imported '{display_name}' ({meta.status.value}, {element_count} elements) "
+        f"as job {job_id}",
+        fg="green",
+    )
+    typer.echo("open `isai gui` to view it")
+
+
 @app.command()
 def jobs() -> None:
     """List GUI-managed jobs stored under %LOCALAPPDATA%\\IsAI."""

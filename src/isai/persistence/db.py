@@ -14,6 +14,7 @@ Design rules:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 from collections.abc import Generator
@@ -91,6 +92,37 @@ class TaskRow(BaseModel):
 
 def utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def safe_copy_journal(source: Path, destination: Path) -> None:
+    """Copy a journal via SQLite's online backup API.
+
+    Unlike a filesystem copy, this yields a consistent single-file snapshot even
+    when the source is in WAL mode or being written by a running job.
+    """
+    if not source.is_file():
+        raise IsaiError(ErrorCategory.DATABASE, f"journal not found: {source.name}")
+    if destination.exists():
+        raise IsaiError(
+            ErrorCategory.FILESYSTEM,
+            f"destination already exists: {destination.name}",
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    src_conn = sqlite3.connect(str(source))
+    dest_conn = sqlite3.connect(str(destination))
+    try:
+        src_conn.backup(dest_conn)
+    except sqlite3.Error as exc:
+        dest_conn.close()
+        destination.unlink(missing_ok=True)
+        raise IsaiError(
+            ErrorCategory.DATABASE,
+            f"could not snapshot journal {source.name}: not a valid SQLite database?",
+        ) from exc
+    finally:
+        src_conn.close()
+        with contextlib.suppress(sqlite3.Error):
+            dest_conn.close()
 
 
 _SCHEMA = """
