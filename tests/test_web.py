@@ -348,3 +348,47 @@ def test_hostile_document_text_never_interpolated_into_html(
 
     detail_res = client.get(f"/api/jobs/{job_id}/state")
     assert detail_res.headers["content-type"].startswith("application/json")
+
+
+# -- journal import (browser buttons) -----------------------------------------------
+
+
+def test_import_journal_via_web(client: TestClient, tmp_path: Path) -> None:
+    """Drop an exported .sqlite3 on the page → viewable job, no provider calls."""
+    res = upload(client, tmp_path)
+    job_id = res.json()["job_id"]
+    wait_for_status(client, job_id, "completed")
+    exported = client.get(f"/api/jobs/{job_id}/journal?confirm=yes")
+    assert exported.status_code == 200
+
+    res = client.post(
+        "/api/import",
+        files={"file": ("thesis-review.sqlite3", exported.content, "application/octet-stream")},
+    )
+    assert res.status_code == 201, res.text
+    imported_id = res.json()["job_id"]
+    assert imported_id != job_id
+
+    state = client.get(f"/api/jobs/{imported_id}/state").json()
+    assert state["job"]["status"] == "completed"
+    assert state["elements"], "imported job is fully viewable"
+    report = client.get(f"/api/jobs/{imported_id}/report")
+    assert report.status_code == 200
+    assert "cannot determine authorship" in report.text
+
+
+def test_import_rejects_non_sqlite_via_web(client: TestClient) -> None:
+    res = client.post(
+        "/api/import",
+        files={"file": ("fake.sqlite3", b"not a database at all", "application/octet-stream")},
+    )
+    assert res.status_code == 400
+    assert "journal" in res.json()["detail"]
+
+
+def test_job_page_has_export_and_folder_buttons(client: TestClient, tmp_path: Path) -> None:
+    res = upload(client, tmp_path)
+    job_id = res.json()["job_id"]
+    page = client.get(f"/job/{job_id}")
+    assert 'id="btn-export"' in page.text
+    assert 'id="btn-folder"' in page.text

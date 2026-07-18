@@ -20,8 +20,12 @@ function setStatus(text) {
 
 async function upload(file) {
   if (!file) return;
-  if (!file.name.toLowerCase().endsWith(".docx")) {
-    setStatus("Only .docx files are accepted.");
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith(".sqlite3")) {
+    return importJournal(file);
+  }
+  if (!lower.endsWith(".docx")) {
+    setStatus("Drop a .docx to review, or an exported .sqlite3 journal to view.");
     return;
   }
   setStatus("Uploading " + file.name + " …");
@@ -95,6 +99,23 @@ async function refreshJobs() {
     });
     li.append(link, status, del);
     jobsEl.appendChild(li);
+  }
+}
+
+async function importJournal(file) {
+  setStatus("Importing " + file.name + " …");
+  const form = new FormData();
+  form.append("file", file, file.name);
+  try {
+    const res = await api("/api/import", { method: "POST", body: form });
+    const data = await res.json();
+    if (!res.ok) {
+      setStatus("Rejected: " + (data.detail || res.statusText));
+      return;
+    }
+    window.location.href = "/job/" + data.job_id + "?token=" + encodeURIComponent(TOKEN);
+  } catch (err) {
+    setStatus("Import failed: " + err.message);
   }
 }
 

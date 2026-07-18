@@ -31,6 +31,12 @@ ZIP_SIGNATURE = b"PK\x03\x04"
 _SAFE_NAME_RE = re.compile(r"[^\w֐-׿ .()\[\]-]", re.UNICODE)
 
 
+def _rmtree_quiet(path: Path) -> None:
+    import shutil  # noqa: PLC0415
+
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def sanitize_filename(raw: str) -> str:
     """A display-safe basename: path parts stripped, hostile characters removed."""
     name = raw.replace("\\", "/").rsplit("/", 1)[-1]
@@ -128,6 +134,44 @@ class JobManager:
         (directory / "meta.json").write_text(
             json.dumps({"display_name": display_name}), encoding="utf-8"
         )
+        with self._lock:
+            self._jobs[job_id] = job
+        return job
+
+    def import_journal(self, source: Path, display_name: str | None = None) -> ManagedJob:
+        """Register an exported journal as a viewable job (no .docx required).
+
+        The journal is snapshot-copied, validated end to end, and its Markdown
+        report regenerated locally — no provider calls. On any failure nothing
+        is left behind.
+        """
+        from isai.persistence.db import safe_copy_journal  # noqa: PLC0415
+        from isai.pipeline import rebuild_report  # noqa: PLC0415
+
+        job_id = uuid.uuid4().hex[:12]
+        directory = self.base_dir / job_id
+        try:
+            safe_copy_journal(source, directory / "report.sqlite3")
+            journal = Journal.open(directory / "report.sqlite3")
+            meta = journal.meta()
+            if not journal.elements():
+                journal.close()
+                raise IsaiError(ErrorCategory.DOCUMENT, "journal contains no elements")
+            journal.close()
+            name = sanitize_filename(display_name or meta.source_filename)
+            (directory / "meta.json").write_text(
+                json.dumps({"display_name": name}), encoding="utf-8"
+            )
+            rebuild_report(directory / "report.sqlite3", directory / "report.md")
+        except IsaiError:
+            _rmtree_quiet(directory)
+            raise
+        except Exception as exc:  # unreadable/foreign file
+            _rmtree_quiet(directory)
+            raise IsaiError(
+                ErrorCategory.DOCUMENT, f"not a usable IsAI journal: {source.name}"
+            ) from exc
+        job = ManagedJob(job_id=job_id, directory=directory, display_name=name)
         with self._lock:
             self._jobs[job_id] = job
         return job

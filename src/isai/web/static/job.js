@@ -481,6 +481,18 @@ function bindControls() {
   document.getElementById("btn-rebuild").addEventListener("click", post("rebuild"));
   document.getElementById("btn-report").href =
     "/api/jobs/" + JOB_ID + "/report?token=" + encodeURIComponent(TOKEN);
+  document.getElementById("btn-export").addEventListener("click", () => {
+    if (
+      !window.confirm(
+        "The journal contains the full document text. Export it for viewing " +
+        "this review on another PC (via drop zone or `isai import`)?"
+      )
+    )
+      return;
+    window.location.href =
+      "/api/jobs/" + JOB_ID + "/journal?confirm=yes&token=" + encodeURIComponent(TOKEN);
+  });
+  document.getElementById("btn-folder").addEventListener("click", post("open-folder"));
   filterEl.addEventListener("change", renderDocument);
   searchEl.addEventListener("input", () => renderDocument());
 }

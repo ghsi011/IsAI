@@ -116,6 +116,26 @@ def create_app(  # noqa: PLR0915 - route registration is linear, not complex
         jobs.start(job.job_id, config)
         return JSONResponse({"job_id": job.job_id}, status_code=201)
 
+    @app.post("/api/import")
+    async def import_journal(file: UploadFile) -> JSONResponse:
+        """Import an exported journal (.sqlite3) as a viewable job."""
+        content = await file.read()
+        if len(content) > 200 * 1024 * 1024:
+            raise IsaiError(ErrorCategory.DOCUMENT, "journal exceeds the 200 MB cap")
+        if not content.startswith(b"SQLite format 3\x00"):
+            raise IsaiError(
+                ErrorCategory.DOCUMENT,
+                "not an IsAI journal (.sqlite3 exported via `isai export` or the "
+                "Export journal button)",
+            )
+        import tempfile  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="isai-import-") as tmp:
+            staged = Path(tmp) / (Path(file.filename or "journal.sqlite3").name)
+            staged.write_bytes(content)
+            job = jobs.import_journal(staged, file.filename)
+        return JSONResponse({"job_id": job.job_id}, status_code=201)
+
     # -- one job ----------------------------------------------------------------------
 
     def _saved_config(job_id: str) -> ReviewConfig:

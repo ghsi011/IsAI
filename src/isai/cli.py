@@ -278,47 +278,13 @@ def import_journal(
     filtering, and highlights fully work; resuming an unfinished imported job
     would additionally need the original .docx.
     """
-    import json as json_module  # noqa: PLC0415
-    import uuid  # noqa: PLC0415
+    from isai.web.jobs import JobManager  # noqa: PLC0415
 
-    from isai.doctor import app_data_dir  # noqa: PLC0415
-    from isai.persistence import Journal  # noqa: PLC0415
-    from isai.persistence.db import safe_copy_journal  # noqa: PLC0415
-    from isai.pipeline import rebuild_report  # noqa: PLC0415
-    from isai.web.jobs import sanitize_filename  # noqa: PLC0415
-
-    job_id = uuid.uuid4().hex[:12]
-    job_dir = app_data_dir() / "jobs" / job_id
     try:
-        try:
-            # Snapshot-copy first, then validate the copy end to end.
-            safe_copy_journal(journal_file, job_dir / "report.sqlite3")
-            journal = Journal.open(job_dir / "report.sqlite3")
-            meta = journal.meta()
-            element_count = len(journal.elements())
-            journal.close()
-            display_name = sanitize_filename(name or meta.source_filename)
-            (job_dir / "meta.json").write_text(
-                json_module.dumps({"display_name": display_name}), encoding="utf-8"
-            )
-            rebuild_report(job_dir / "report.sqlite3", job_dir / "report.md")
-        except Exception:
-            shutil.rmtree(job_dir, ignore_errors=True)
-            raise
+        job = JobManager().import_journal(journal_file, name)
     except IsaiError as exc:
         raise _fail(exc) from exc
-    except Exception as exc:  # unreadable/foreign file → clean error, no leftovers
-        typer.secho(
-            f"error (document): not a usable IsAI journal: {journal_file.name}",
-            fg="red",
-            err=True,
-        )
-        raise typer.Exit(3) from exc
-    typer.secho(
-        f"imported '{display_name}' ({meta.status.value}, {element_count} elements) "
-        f"as job {job_id}",
-        fg="green",
-    )
+    typer.secho(f"imported '{job.display_name}' as job {job.job_id}", fg="green")
     typer.echo("open `isai gui` to view it")
 
 
