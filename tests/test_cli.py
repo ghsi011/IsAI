@@ -15,6 +15,7 @@ from typer.testing import CliRunner
 
 from isai import __version__
 from isai.cli import app
+from isai.persistence.db import safe_copy_journal
 from tests.conftest import REPO_ROOT, SetScenario, mock_prefix
 
 runner = CliRunner()
